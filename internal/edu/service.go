@@ -3,12 +3,15 @@ package edu
 import (
 	"context"
 	"fmt"
+	"regexp"
 
 	"forgejo.org/models/organization"
 	"forgejo.org/models/perm"
 	repo_model "forgejo.org/models/repo"
 	user_model "forgejo.org/models/user"
 )
+
+var taskNameRegex = regexp.MustCompile(`^[a-z0-9_-]+$`)
 
 // CreateAssignmentOptions contains options for creating a new assignment.
 type CreateAssignmentOptions struct {
@@ -59,6 +62,11 @@ type EducationalService interface {
 	GetInitForksTaskByCourse(ctx context.Context, courseID int64) (*InitForksTask, error)
 	GetInitForksTaskByID(ctx context.Context, id int64) (*InitForksTask, error)
 
+	// Distribute (assignment-level)
+	DistributeAssignment(ctx context.Context, assignmentID, doerID int64) (*DistributeTask, error)
+	GetDistributeTaskByAssignment(ctx context.Context, assignmentID int64) (*DistributeTask, error)
+	GetDistributeTaskByID(ctx context.Context, id int64) (*DistributeTask, error)
+
 	EnrollUser(ctx context.Context, opts EnrollUserOptions) error
 	GetEnrollments(ctx context.Context, courseID int64) ([]*CourseEnrollment, error)
 	RemoveEnrollment(ctx context.Context, courseID, userID int64) error
@@ -86,6 +94,7 @@ type RepoForker interface {
 	RemoveCollaborator(ctx context.Context, repoID, userID int64) error
 	ProtectMainBranch(ctx context.Context, repoID int64, branchName string) error
 	GetRepositoryByOwnerAndName(ctx context.Context, ownerID int64, repoName string) (*repo_model.Repository, error)
+	BranchExists(ctx context.Context, repoID int64, branchName string) (bool, error)
 }
 
 // UserCreator abstracts user creation and lookup for import and bulk operations.
@@ -207,6 +216,43 @@ func NewService(repo Repository, forker RepoForker, users ...UserCreator) Educat
 func (s *service) CreateAssignment(ctx context.Context, opts CreateAssignmentOptions) (*Assignment, error) {
 	if opts.CourseID == 0 || opts.TaskName == "" || opts.Title == "" {
 		return nil, fmt.Errorf("course_id, task_name and title are required")
+	}
+	if !taskNameRegex.MatchString(opts.TaskName) {
+		return nil, ErrAssignmentTaskNameInvalid
+	}
+	if len(opts.TaskName) > 100 {
+		return nil, ErrAssignmentTaskNameInvalid
+	}
+	if opts.AllowedFilesGlob == "" {
+		return nil, ErrAllowedFilesGlobRequired
+	}
+
+	course, err := s.repo.GetCourseByID(ctx, opts.CourseID)
+	if err != nil {
+		return nil, fmt.Errorf("get course: %w", err)
+	}
+	if course == nil {
+		return nil, fmt.Errorf("course not found")
+	}
+	if course.TasksMasterRepoID == 0 {
+		return nil, ErrTasksMasterRepoNotSet
+	}
+
+	existing, err := s.repo.GetAssignmentByCourseAndTask(ctx, opts.CourseID, opts.TaskName)
+	if err != nil {
+		return nil, fmt.Errorf("check duplicate assignment: %w", err)
+	}
+	if existing != nil {
+		return nil, ErrAssignmentTaskNameInUse
+	}
+
+	branchName := "submits/" + opts.TaskName
+	exists, err := s.forker.BranchExists(ctx, course.TasksMasterRepoID, branchName)
+	if err != nil {
+		return nil, fmt.Errorf("check branch: %w", err)
+	}
+	if !exists {
+		return nil, ErrSubmitsBranchNotFound
 	}
 
 	a := &Assignment{

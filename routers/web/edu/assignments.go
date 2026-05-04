@@ -1,13 +1,15 @@
 package edu
 
 import (
+	"errors"
+	"html/template"
 	"net/http"
+	"strconv"
 	"time"
 
 	"forgejo.org/internal/edu"
-	"forgejo.org/models/db"
-	org_model "forgejo.org/models/organization"
 	repo_model "forgejo.org/models/repo"
+	user_model "forgejo.org/models/user"
 	"forgejo.org/modules/base"
 	"forgejo.org/modules/log"
 	"forgejo.org/modules/setting"
@@ -130,7 +132,21 @@ func AssignmentDetail(ctx *context.Context) {
 	if submission != nil {
 		latestResult, _ := svc.GetLatestTestResult(ctx, submission.ID)
 		ctx.Data["LatestTestResult"] = latestResult
-		// TODO: student-fork link
+
+		// Resolve student fork link: org/<repoName>/src/branch/<branchName>
+		if assignment.CourseID > 0 {
+			course, err := svc.GetCourseByID(ctx, assignment.CourseID)
+			if err == nil && course != nil && course.OrgID > 0 {
+				enrollment, _ := edu.NewRepository().GetEnrollmentByCourseUser(ctx, assignment.CourseID, ctx.Doer.ID)
+				if enrollment != nil && enrollment.StudentForkRepoID > 0 {
+					forkRepo, _ := repo_model.GetRepositoryByID(ctx, enrollment.StudentForkRepoID)
+					orgUser, _ := user_model.GetUserByID(ctx, course.OrgID)
+					if forkRepo != nil && orgUser != nil {
+						ctx.Data["StudentForkLink"] = orgUser.Name + "/" + forkRepo.Name + "/src/branch/" + submission.BranchName
+					}
+				}
+			}
+		}
 	}
 
 	ctx.Data["PageIsEduStudent"] = true
@@ -138,48 +154,16 @@ func AssignmentDetail(ctx *context.Context) {
 	ctx.HTML(http.StatusOK, tplAssignmentDetail)
 }
 
-// TODO
-func JoinAssignment(ctx *context.Context) {
-	ctx.Error(http.StatusGone, "TODO")
-}
-
-// loadCoursesAndRepos populates template data with courses list and repos for the selected course.
-// If a course with OrgID is selected, repos from that org are shown; otherwise user's own repos.
-func loadCoursesAndRepos(ctx *context.Context, svc edu.EducationalService, selectedCourseID int64) {
+// loadCoursesForAssignment populates "Courses" and "SelectedCourseID" for the
+// assignment form. After Plan 3 there is no per-assignment template-repo
+// dropdown — the tasks-master is fixed at the course level.
+func loadCoursesForAssignment(ctx *context.Context, svc edu.EducationalService, selectedCourseID int64) {
 	courses, err := svc.GetCoursesForUser(ctx, ctx.Doer.ID)
 	if err != nil {
 		log.Error("Failed to get courses: %v", err)
 	}
 	ctx.Data["Courses"] = courses
 	ctx.Data["SelectedCourseID"] = selectedCourseID
-
-	// Determine which repos to show based on selected course's org
-	var repos repo_model.RepositoryList
-	var courseHasOrg bool
-	if selectedCourseID > 0 {
-		for _, c := range courses {
-			if c.ID == selectedCourseID && c.OrgID > 0 {
-				courseHasOrg = true
-				repos, err = org_model.GetOrgRepositories(ctx, c.OrgID)
-				if err != nil {
-					log.Error("Failed to get org repos: %v", err)
-				}
-				break
-			}
-		}
-	}
-	if !courseHasOrg {
-		// Show user's own repos only when course is not linked to an org
-		repos, _, err = repo_model.GetUserRepositories(ctx, &repo_model.SearchRepoOptions{
-			ListOptions: db.ListOptions{ListAll: true},
-			Actor:       ctx.Doer,
-			Private:     true,
-		})
-		if err != nil {
-			log.Error("Failed to get user repos: %v", err)
-		}
-	}
-	ctx.Data["Repos"] = repos
 }
 
 func NewAssignment(ctx *context.Context) {
@@ -192,15 +176,91 @@ func NewAssignment(ctx *context.Context) {
 
 	svc := edu.GetService()
 	selectedCourseID := ctx.FormInt64("course_id")
-	loadCoursesAndRepos(ctx, svc, selectedCourseID)
+	loadCoursesForAssignment(ctx, svc, selectedCourseID)
 
 	setEduNavContext(ctx)
 	ctx.HTML(http.StatusOK, "edu/assignment_new")
 }
 
-// TODO
 func NewAssignmentPost(ctx *context.Context) {
-	ctx.Error(http.StatusGone, "TODO")
+	if !isFullTeacher(ctx) {
+		ctx.Error(http.StatusForbidden, "Only teachers can create assignments")
+		return
+	}
+	ctx.Data["Title"] = "New Assignment"
+	ctx.Data["PageIsEduAssignments"] = true
+
+	svc := edu.GetService()
+
+	courseID := ctx.FormInt64("course_id")
+	taskName := ctx.FormString("task_name")
+	title := ctx.FormString("title")
+	description := ctx.FormString("description")
+	allowedFilesGlob := ctx.FormString("allowed_files_glob")
+
+	// Render-with-error helper that re-populates the form with current input
+	// and the courses dropdown so the user does not lose their typing.
+	renderErr := func(msg template.HTML) {
+		loadCoursesForAssignment(ctx, svc, courseID)
+		ctx.Data["task_name"] = taskName
+		ctx.Data["title"] = title
+		ctx.Data["description"] = description
+		ctx.Data["allowed_files_glob"] = allowedFilesGlob
+		ctx.Data["deadline"] = ctx.FormString("deadline")
+		ctx.RenderWithErr(msg, "edu/assignment_new", nil)
+	}
+
+	if courseID == 0 {
+		renderErr(ctx.Tr("edu.course_required"))
+		return
+	}
+	if title == "" {
+		renderErr(ctx.Tr("edu.title_required"))
+		return
+	}
+	if len(title) > 255 {
+		renderErr(ctx.Tr("edu.title_too_long"))
+		return
+	}
+
+	var deadlineUnix int64
+	deadlineStr := ctx.FormString("deadline")
+	if deadlineStr != "" {
+		t, err := time.Parse("2006-01-02T15:04", deadlineStr)
+		if err == nil {
+			deadlineUnix = t.Unix()
+		}
+	}
+
+	opts := edu.CreateAssignmentOptions{
+		CourseID:         courseID,
+		TaskName:         taskName,
+		AllowedFilesGlob: allowedFilesGlob,
+		Title:            title,
+		Description:      description,
+		DeadlineUnix:     deadlineUnix,
+	}
+
+	a, err := svc.CreateAssignment(ctx, opts)
+	if err != nil {
+		switch {
+		case errors.Is(err, edu.ErrAssignmentTaskNameInvalid):
+			renderErr(ctx.Tr("edu.task_name_invalid"))
+		case errors.Is(err, edu.ErrAssignmentTaskNameInUse):
+			renderErr(ctx.Tr("edu.task_name_in_use"))
+		case errors.Is(err, edu.ErrAllowedFilesGlobRequired):
+			renderErr(ctx.Tr("edu.allowed_files_required"))
+		case errors.Is(err, edu.ErrTasksMasterRepoNotSet):
+			renderErr(ctx.Tr("edu.distribute_no_master"))
+		case errors.Is(err, edu.ErrSubmitsBranchNotFound):
+			renderErr(ctx.Tr("edu.submits_branch_missing"))
+		default:
+			ctx.ServerError("CreateAssignment", err)
+		}
+		return
+	}
+
+	ctx.Redirect(setting.AppSubURL + "/edu/teacher/assignments/" + strconv.FormatInt(a.ID, 10) + "/submissions")
 }
 
 func EditAssignment(ctx *context.Context) {
@@ -270,6 +330,7 @@ func EditAssignmentPost(ctx *context.Context) {
 
 	assignment.Title = ctx.FormString("title")
 	assignment.Description = ctx.FormString("description")
+	assignment.AllowedFilesGlob = ctx.FormString("allowed_files_glob")
 
 	if assignment.Title == "" {
 		ctx.Data["Assignment"] = assignment
@@ -279,6 +340,11 @@ func EditAssignmentPost(ctx *context.Context) {
 	if len(assignment.Title) > 255 {
 		ctx.Data["Assignment"] = assignment
 		ctx.RenderWithErr(ctx.Tr("edu.title_too_long"), tplAssignmentEdit, nil)
+		return
+	}
+	if assignment.AllowedFilesGlob == "" {
+		ctx.Data["Assignment"] = assignment
+		ctx.RenderWithErr(ctx.Tr("edu.allowed_files_required"), tplAssignmentEdit, nil)
 		return
 	}
 
@@ -333,4 +399,91 @@ func DeleteAssignmentPost(ctx *context.Context) {
 	}
 
 	ctx.Redirect(setting.AppSubURL + "/edu/teacher/assignments")
+}
+
+// DistributePost starts an asynchronous bulk-push of submits/<task_name> from
+// the course's tasks-master into every student fork. Only the course creator
+// (or site admin) may run it; full-teacher role enforced by reqEduTeacher.
+func DistributePost(ctx *context.Context) {
+	if !isFullTeacher(ctx) {
+		ctx.Error(http.StatusForbidden, "Only teachers can distribute assignments")
+		return
+	}
+
+	assignmentID := ctx.ParamsInt64(":id")
+	svc := edu.GetService()
+	if svc == nil {
+		ctx.ServerError("GetService", nil)
+		return
+	}
+
+	assignment, err := svc.GetAssignmentByID(ctx, assignmentID)
+	if err != nil {
+		ctx.ServerError("GetAssignmentByID", err)
+		return
+	}
+	if assignment == nil {
+		ctx.NotFound("Assignment not found", nil)
+		return
+	}
+
+	course, err := svc.GetCourseByID(ctx, assignment.CourseID)
+	if err != nil {
+		ctx.ServerError("GetCourseByID", err)
+		return
+	}
+	if course == nil {
+		ctx.NotFound("Course not found", nil)
+		return
+	}
+	if course.CreatorID != ctx.Doer.ID && !ctx.Doer.IsAdmin {
+		ctx.Error(http.StatusForbidden, "You can only distribute assignments in your own courses")
+		return
+	}
+
+	if _, err := svc.DistributeAssignment(ctx, assignmentID, ctx.Doer.ID); err != nil {
+		switch {
+		case errors.Is(err, edu.ErrTasksMasterRepoNotSet):
+			ctx.Flash.Error(ctx.Tr("edu.distribute_no_master"))
+		case errors.Is(err, edu.ErrInitForksNotDone):
+			ctx.Flash.Error(ctx.Tr("edu.distribute_no_init_forks"))
+		default:
+			ctx.ServerError("DistributeAssignment", err)
+			return
+		}
+		ctx.Redirect(setting.AppSubURL + "/edu/teacher/assignments/" + ctx.Params(":id") + "/submissions")
+		return
+	}
+
+	ctx.Flash.Success(ctx.Tr("edu.distribute_started"))
+	ctx.Redirect(setting.AppSubURL + "/edu/teacher/assignments/" + ctx.Params(":id") + "/submissions")
+}
+
+// DistributeStatus returns JSON progress of the latest distribute task for an assignment.
+func DistributeStatus(ctx *context.Context) {
+	assignmentID := ctx.ParamsInt64(":id")
+	svc := edu.GetService()
+	if svc == nil {
+		ctx.ServerError("GetService", nil)
+		return
+	}
+
+	task, err := svc.GetDistributeTaskByAssignment(ctx, assignmentID)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	if task == nil {
+		ctx.JSON(http.StatusOK, map[string]any{"status": "none"})
+		return
+	}
+	ctx.JSON(http.StatusOK, map[string]any{
+		"id":        task.ID,
+		"status":    task.Status,
+		"total":     task.TotalEnrollments,
+		"pushed":    task.Pushed,
+		"failed":    task.Failed,
+		"error_log": task.ErrorLog,
+		"updated":   task.UpdatedUnix,
+	})
 }

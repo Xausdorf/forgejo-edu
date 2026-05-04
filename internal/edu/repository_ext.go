@@ -24,7 +24,7 @@ func (r *xormRepository) GetAssignmentsForUser(ctx context.Context, userID int64
 }
 
 func (r *xormRepository) UpdateAssignment(ctx context.Context, a *Assignment) error {
-	_, err := db.GetEngine(ctx).ID(a.ID).Cols("title", "description", "deadline_unix", "updated_unix").Update(a)
+	_, err := db.GetEngine(ctx).ID(a.ID).Cols("title", "description", "allowed_files_glob", "deadline_unix", "updated_unix").Update(a)
 	if err != nil {
 		return fmt.Errorf("update assignment: %w", err)
 	}

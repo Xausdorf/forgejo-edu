@@ -34,14 +34,16 @@
 						<textarea id="description" name="description">{{.description}}</textarea>
 					</div>
 
-                    <div class="required field {{if .Err_TemplateRepo}}error{{end}}">
-						<label for="repo_id">{{ctx.Locale.Tr "edu.template_repo_name"}}</label>
-						<select id="repo_id" name="repo_id" class="ui search dropdown" required>
-							<option value="">{{ctx.Locale.Tr "edu.select_repo"}}</option>
-							{{range .Repos}}
-								<option value="{{.ID}}">{{.OwnerName}}/{{.Name}}</option>
-							{{end}}
-						</select>
+                    <div class="required field">
+						<label for="task_name">{{ctx.Locale.Tr "edu.task_name"}}</label>
+						<input id="task_name" name="task_name" value="{{.task_name}}" required pattern="^[a-z0-9_-]+$" maxlength="100">
+						<div class="ui small message">{{ctx.Locale.Tr "edu.task_name_help"}}</div>
+					</div>
+
+                    <div class="required field">
+						<label for="allowed_files_glob">{{ctx.Locale.Tr "edu.allowed_files_glob"}}</label>
+						<input id="allowed_files_glob" name="allowed_files_glob" value="{{.allowed_files_glob}}" placeholder="tasks/<task_name>/<task_name>.cpp" required>
+						<div class="ui small message">{{ctx.Locale.Tr "edu.allowed_files_glob_help"}}</div>
 					</div>
 
                     <div class="field {{if .Err_Deadline}}error{{end}}">

@@ -449,6 +449,11 @@ func (m *MockRepoForker) GetRepositoryByOwnerAndName(ctx context.Context, ownerI
 	return args.Get(0).(*repo_model.Repository), args.Error(1)
 }
 
+func (m *MockRepoForker) BranchExists(ctx context.Context, repoID int64, branchName string) (bool, error) {
+	args := m.Called(ctx, repoID, branchName)
+	return args.Bool(0), args.Error(1)
+}
+
 // MockOrgManager mocks the OrgManager interface
 type MockOrgManager struct {
 	mock.Mock

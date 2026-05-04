@@ -25,22 +25,25 @@
 					{{if .Submission}}
 						<h3 class="ui header">
 							{{ctx.Locale.Tr "edu.status"}}:
-							<span class="ui label {{if eq (printf "%s" .Submission.Status) "passed"}}green{{else if eq (printf "%s" .Submission.Status) "failed"}}red{{else if eq (printf "%s" .Submission.Status) "submitted"}}blue{{else if eq (printf "%s" .Submission.Status) "graded"}}purple{{else}}grey{{end}}">
+							<span class="ui label {{if eq (printf "%s" .Submission.Status) "done"}}green{{else if eq (printf "%s" .Submission.Status) "failed"}}red{{else if eq (printf "%s" .Submission.Status) "running"}}blue{{else if eq (printf "%s" .Submission.Status) "approved"}}olive{{else if eq (printf "%s" .Submission.Status) "merged"}}purple{{else}}grey{{end}}">
 								{{.Submission.Status}}
 							</span>
 						</h3>
-						{{if .StudentRepoLink}}
-							<a href="{{AppSubUrl}}/{{.StudentRepoLink}}" class="ui primary button">{{ctx.Locale.Tr "edu.go_to_repo"}}</a>
+						<p>
+							<strong>{{ctx.Locale.Tr "edu.fork_branch_link"}}:</strong>
+							{{if .StudentForkLink}}
+								<a href="{{AppSubUrl}}/{{.StudentForkLink}}" class="ui primary button">
+									{{svg "octicon-git-branch"}} {{.Submission.BranchName}}
+								</a>
+							{{else}}
+								<code>{{.Submission.BranchName}}</code>
+							{{end}}
+						</p>
+						{{if .DeadlinePassed}}
+							<p class="ui yellow message">{{ctx.Locale.Tr "edu.deadline_passed"}}</p>
 						{{end}}
 					{{else}}
-						{{if .DeadlinePassed}}
-							<p class="ui red message">{{ctx.Locale.Tr "edu.deadline_passed_message"}}</p>
-						{{else}}
-							<form action="{{AppSubUrl}}/edu/student/assignments/{{.Assignment.ID}}/join" method="post">
-								{{.CsrfTokenHtml}}
-								<button class="ui green button">{{ctx.Locale.Tr "edu.start_assignment"}}</button>
-							</form>
-						{{end}}
+						<p class="ui info message">{{ctx.Locale.Tr "edu.assignment_not_distributed_yet"}}</p>
 					{{end}}
 				</div>
 

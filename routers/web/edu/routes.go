@@ -13,7 +13,6 @@ func RegisterRoutes(m *web.Route, middlewares ...any) {
 		m.Group("/student", func() {
 			m.Get("/assignments", StudentAssignments)
 			m.Get("/assignments/{id}", AssignmentDetail)
-			m.Post("/assignments/{id}/join", JoinAssignment)
 		})
 
 		m.Group("/teacher", func() {
@@ -23,9 +22,9 @@ func RegisterRoutes(m *web.Route, middlewares ...any) {
 			m.Get("/assignments/{id}/edit", EditAssignment)
 			m.Post("/assignments/{id}/edit", EditAssignmentPost)
 			m.Post("/assignments/{id}/delete", DeleteAssignmentPost)
+			m.Post("/assignments/{id}/distribute", DistributePost)
+			m.Get("/assignments/{id}/distribute-status", DistributeStatus)
 			m.Get("/assignments/{id}/submissions", InstructorSubmissions)
-			m.Post("/assignments/{id}/sync-forks", SyncAllForksPost)
-			m.Get("/assignments/{id}/sync-fork-status", SyncForkStatus)
 			m.Get("/assignments/{id}/submissions/{subID}", SubmissionDetail)
 			m.Post("/assignments/{id}/submissions/{subID}/grade", GradeSubmissionPost)
 			m.Post("/assignments/{id}/submissions/{subID}/reset-grade", ResetGradePost)

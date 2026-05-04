@@ -14,6 +14,9 @@ func TestCreateAssignment_StoresTaskNameAndGlob(t *testing.T) {
 	service := NewService(mockRepo, mockForker)
 	ctx := context.Background()
 
+	mockRepo.On("GetCourseByID", ctx, int64(1)).Return(&Course{ID: 1, TasksMasterRepoID: 99}, nil)
+	mockRepo.On("GetAssignmentByCourseAndTask", ctx, int64(1), "multiplication").Return(nil, nil)
+	mockForker.On("BranchExists", ctx, int64(99), "submits/multiplication").Return(true, nil)
 	mockRepo.On("CreateAssignment", ctx, mock.MatchedBy(func(a *Assignment) bool {
 		return a.TaskName == "multiplication" && a.AllowedFilesGlob == "tasks/multiplication/*.cpp"
 	})).Return(nil).Once()

@@ -14,6 +14,12 @@
 				<div class="ui attached segment">
 					{{template "base/alert" .}}
 
+					<div class="field">
+						<label>{{ctx.Locale.Tr "edu.task_name"}}</label>
+						<input value="{{.Assignment.TaskName}}" readonly disabled>
+						<div class="ui small message">{{ctx.Locale.Tr "edu.task_name_help"}}</div>
+					</div>
+
 					<div class="required field">
 						<label for="title">{{ctx.Locale.Tr "edu.title"}}</label>
 						<input id="title" name="title" value="{{.Assignment.Title}}" autofocus required>
@@ -22,6 +28,12 @@
 					<div class="field">
 						<label for="description">{{ctx.Locale.Tr "edu.description"}}</label>
 						<textarea id="description" name="description">{{.Assignment.Description}}</textarea>
+					</div>
+
+					<div class="required field">
+						<label for="allowed_files_glob">{{ctx.Locale.Tr "edu.allowed_files_glob"}}</label>
+						<input id="allowed_files_glob" name="allowed_files_glob" value="{{.Assignment.AllowedFilesGlob}}" required>
+						<div class="ui small message">{{ctx.Locale.Tr "edu.allowed_files_glob_help"}}</div>
 					</div>
 
 					<div class="field">

@@ -14,16 +14,10 @@
 					</div>
 					{{if .IsFullTeacher}}
 					<div class="right menu">
-						<form action="{{AppSubUrl}}/edu/teacher/assignments/{{.Assignment.ID}}/bulk-fork" method="post" style="margin-left: 5px;">
+						<form action="{{AppSubUrl}}/edu/teacher/assignments/{{.Assignment.ID}}/distribute" method="post" style="margin-left: 5px;">
 							{{.CsrfTokenHtml}}
-							<button class="ui teal button" onclick="return confirm('{{ctx.Locale.Tr "edu.fork_confirm"}}')">
-								{{svg "octicon-repo-forked"}} {{ctx.Locale.Tr "edu.fork_for_all"}}
-							</button>
-						</form>
-						<form action="{{AppSubUrl}}/edu/teacher/assignments/{{.Assignment.ID}}/sync-forks" method="post" style="margin-left: 5px;">
-							{{.CsrfTokenHtml}}
-							<button class="ui olive button" onclick="return confirm('{{ctx.Locale.Tr "edu.sync_confirm"}}')">
-								{{svg "octicon-sync"}} {{ctx.Locale.Tr "edu.sync_all_forks"}}
+							<button class="ui teal button" type="submit" id="edu-distribute-button" onclick="return confirm('{{ctx.Locale.Tr "edu.distribute_confirm"}}')">
+								{{svg "octicon-rocket"}} {{ctx.Locale.Tr "edu.distribute_run"}}
 							</button>
 						</form>
 						<a class="ui button" href="{{AppSubUrl}}/edu/teacher/assignments/{{.Assignment.ID}}/edit" style="margin-left: 5px;">
@@ -39,11 +33,29 @@
 					{{end}}
 				</div>
 
+				{{if .AvailableGroups}}
+				<div class="ui segment" id="edu-group-filter-block">
+					<form method="get" action="{{AppSubUrl}}/edu/teacher/assignments/{{.Assignment.ID}}/submissions">
+						<label><strong>{{ctx.Locale.Tr "edu.group_filter"}}:</strong></label>
+						<select name="group" multiple class="ui multiple search dropdown" style="min-width:200px">
+							{{$selected := .SelectedGroups}}
+							{{range .AvailableGroups}}
+								{{$g := .}}
+								<option value="{{$g}}" {{range $selected}}{{if eq . $g}}selected{{end}}{{end}}>{{$g}}</option>
+							{{end}}
+						</select>
+						<button class="ui small primary button" type="submit">{{ctx.Locale.Tr "edu.group_filter_apply"}}</button>
+						<a class="ui small button" href="{{AppSubUrl}}/edu/teacher/assignments/{{.Assignment.ID}}/submissions">{{ctx.Locale.Tr "edu.group_filter_clear"}}</a>
+					</form>
+				</div>
+				{{end}}
+
 				<div class="ui segment">
 					<table class="ui celled table">
 						<thead>
 							<tr>
 								<th>{{ctx.Locale.Tr "edu.student"}}</th>
+								<th>{{ctx.Locale.Tr "edu.group"}}</th>
 								<th>{{ctx.Locale.Tr "edu.status"}}</th>
 								<th>{{ctx.Locale.Tr "edu.ci_score"}}</th>
 								<th>{{ctx.Locale.Tr "edu.grade"}}</th>
@@ -63,7 +75,12 @@
 										{{end}}
 									</td>
 									<td>
-										<span class="ui label {{if eq (printf "%s" .Status) "passed"}}green{{else if eq (printf "%s" .Status) "failed"}}red{{else if eq (printf "%s" .Status) "submitted"}}blue{{else if eq (printf "%s" .Status) "graded"}}purple{{else}}grey{{end}}">
+										{{with (index $.EnrollmentMap .ID)}}
+											{{if .GroupName}}<span class="ui tiny label">{{.GroupName}}</span>{{end}}
+										{{end}}
+									</td>
+									<td>
+										<span class="ui label {{if eq (printf "%s" .Status) "done"}}green{{else if eq (printf "%s" .Status) "failed"}}red{{else if eq (printf "%s" .Status) "running"}}blue{{else if eq (printf "%s" .Status) "approved"}}olive{{else if eq (printf "%s" .Status) "merged"}}purple{{else}}grey{{end}}">
 											{{.Status}}
 										</span>
 									</td>
@@ -90,7 +107,7 @@
 										{{end}}
 									</td>
 									<td>
-										{{with (index $.RepoLinkMap .ID)}}<a href="{{AppSubUrl}}/{{.}}">{{ctx.Locale.Tr "edu.repo"}}</a>{{end}}
+										{{with (index $.RepoLinkMap .ID)}}<a href="{{AppSubUrl}}/{{.}}">{{ctx.Locale.Tr "edu.fork_branch_link"}}</a>{{end}}
 									</td>
 									<td>{{(DateUtils).AbsoluteShort .UpdatedUnix}}</td>
 									<td>
@@ -101,7 +118,7 @@
 								</tr>
 							{{else}}
 								<tr>
-									<td colspan="7">{{ctx.Locale.Tr "edu.no_submissions_yet"}}</td>
+									<td colspan="8">{{ctx.Locale.Tr "edu.no_submissions_yet"}}</td>
 								</tr>
 							{{end}}
 						</tbody>
@@ -109,47 +126,71 @@
 				</div>
 			</div>
 
-				{{if .BulkForkTask}}
-				<div class="ui segment">
-					<h4>{{svg "octicon-sync"}} {{ctx.Locale.Tr "edu.bulk_fork_status"}}</h4>
-					<div class="ui indicating progress" data-total="{{.BulkForkTask.TotalUsers}}" data-value="{{.BulkForkTask.Completed}}">
-						<div class="bar"><div class="progress"></div></div>
-						<div class="label">
-							{{.BulkForkTask.Completed}}/{{.BulkForkTask.TotalUsers}} {{ctx.Locale.Tr "edu.completed"}}
-							{{if .BulkForkTask.Failed}}, {{.BulkForkTask.Failed}} {{ctx.Locale.Tr "edu.failed"}}{{end}}
-							— {{.BulkForkTask.Status}}
-						</div>
-					</div>
-					{{if .BulkForkTask.ErrorLog}}
-					<details>
-						<summary class="ui red text">{{ctx.Locale.Tr "edu.error_log"}}</summary>
-						<pre>{{.BulkForkTask.ErrorLog}}</pre>
-					</details>
-					{{end}}
-				</div>
-				{{end}}
-
-				{{if .SyncForkTask}}
-				<div class="ui segment">
-					<h4>{{svg "octicon-sync"}} {{ctx.Locale.Tr "edu.last_sync_status"}}</h4>
-					<div class="ui indicating progress" data-total="{{.SyncForkTask.TotalRepos}}" data-value="{{.SyncForkTask.Synced}}">
-						<div class="bar"><div class="progress"></div></div>
-						<div class="label">
-							{{ctx.Locale.Tr "edu.synced"}}: {{.SyncForkTask.Synced}},
-							{{ctx.Locale.Tr "edu.skipped"}}: {{.SyncForkTask.Skipped}},
-							{{ctx.Locale.Tr "edu.failed"}}: {{.SyncForkTask.Failed}}
-							— {{.SyncForkTask.Status}}
-						</div>
-					</div>
-					{{if .SyncForkTask.ErrorLog}}
-					<details>
-						<summary class="ui red text">{{ctx.Locale.Tr "edu.error_log"}}</summary>
-						<pre>{{.SyncForkTask.ErrorLog}}</pre>
-					</details>
-					{{end}}
-				</div>
-				{{end}}
+			{{if .DistributeTask}}
+			<div class="ui segment" id="edu-distribute-block" data-assignment-id="{{.Assignment.ID}}">
+				<h4>{{svg "octicon-rocket"}} {{ctx.Locale.Tr "edu.distribute"}}</h4>
+				<div id="edu-distribute-progress"></div>
+			</div>
+			{{end}}
 		</div>
 	</div>
 </div>
+{{if .DistributeTask}}
+<script>
+	(function() {
+		const block = document.getElementById('edu-distribute-block');
+		if (!block) return;
+		const assignmentID = block.dataset.assignmentId;
+		const progressEl = document.getElementById('edu-distribute-progress');
+		const buttonEl = document.getElementById('edu-distribute-button');
+		if (!progressEl) return;
+
+		function render(data) {
+			if (!data || data.status === 'none') {
+				progressEl.innerHTML = '';
+				return;
+			}
+			const pushed = data.pushed || 0;
+			const failed = data.failed || 0;
+			const total = data.total || 0;
+			let cls = 'ui label';
+			let label = data.status;
+			if (data.status === 'running' || data.status === 'pending') {
+				cls = 'ui blue label';
+				label = '{{ctx.Locale.Tr "edu.distribute_in_progress"}}';
+				if (buttonEl) buttonEl.disabled = true;
+			} else if (data.status === 'done') {
+				cls = 'ui green label';
+				label = '{{ctx.Locale.Tr "edu.distribute_done"}}';
+				if (buttonEl) buttonEl.disabled = false;
+			} else if (data.status === 'error') {
+				cls = 'ui red label';
+				label = '{{ctx.Locale.Tr "edu.distribute_error"}}';
+				if (buttonEl) buttonEl.disabled = false;
+			}
+			let html = `<span class="${cls}">${label}</span> `;
+			html += `{{ctx.Locale.Tr "edu.distribute_progress"}}: ${pushed} / ${total}`;
+			if (failed > 0) html += ` (failed: ${failed})`;
+			if (data.error_log) {
+				const safe = data.error_log.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+				html += `<pre style="margin-top:8px;max-height:200px;overflow:auto;font-size:0.85em">${safe}</pre>`;
+			}
+			progressEl.innerHTML = html;
+		}
+
+		function poll() {
+			fetch(`{{AppSubUrl}}/edu/teacher/assignments/${assignmentID}/distribute-status`)
+				.then(r => r.json())
+				.then(data => {
+					render(data);
+					if (data.status === 'running' || data.status === 'pending') {
+						setTimeout(poll, 2000);
+					}
+				})
+				.catch(err => console.error('distribute-status:', err));
+		}
+		poll();
+	})();
+</script>
+{{end}}
 {{template "base/footer" .}}

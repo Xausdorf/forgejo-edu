@@ -17,13 +17,17 @@ func TestCreateAssignment(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		opts := CreateAssignmentOptions{
-			CourseID:     1,
-			TaskName:     "hw1",
-			Title:        "Test Assignment",
-			Description:  "Description",
-			DeadlineUnix: time.Now().Add(24 * time.Hour).Unix(),
+			CourseID:         1,
+			TaskName:         "hw1",
+			AllowedFilesGlob: "tasks/hw1/*.cpp",
+			Title:            "Test Assignment",
+			Description:      "Description",
+			DeadlineUnix:     time.Now().Add(24 * time.Hour).Unix(),
 		}
 
+		mockRepo.On("GetCourseByID", ctx, int64(1)).Return(&Course{ID: 1, TasksMasterRepoID: 99}, nil)
+		mockRepo.On("GetAssignmentByCourseAndTask", ctx, int64(1), "hw1").Return(nil, nil)
+		mockForker.On("BranchExists", ctx, int64(99), "submits/hw1").Return(true, nil)
 		mockRepo.On("CreateAssignment", ctx, mock.MatchedBy(func(a *Assignment) bool {
 			return a.CourseID == opts.CourseID && a.TaskName == opts.TaskName && a.Title == opts.Title
 		})).Return(nil)
