@@ -3,6 +3,7 @@ package edu
 import (
 	"context"
 
+	issues_model "forgejo.org/models/issues"
 	"forgejo.org/models/organization"
 	"forgejo.org/models/perm"
 	repo_model "forgejo.org/models/repo"
@@ -67,6 +68,11 @@ func (m *MockRepository) GetSubmissionByEnrollmentAssignment(ctx context.Context
 
 func (m *MockRepository) UpdateSubmission(ctx context.Context, submission *Submission) error {
 	args := m.Called(ctx, submission)
+	return args.Error(0)
+}
+
+func (m *MockRepository) UpdateSubmissionPullRequestID(ctx context.Context, id, prID int64) error {
+	args := m.Called(ctx, id, prID)
 	return args.Error(0)
 }
 
@@ -160,6 +166,14 @@ func (m *MockRepository) GetEnrollmentByCourseUser(ctx context.Context, courseID
 	args := m.Called(ctx, courseID, userID)
 	v, _ := args.Get(0).(*CourseEnrollment)
 	return v, args.Error(1)
+}
+
+func (m *MockRepository) GetEnrollmentByForkRepo(ctx context.Context, repoID int64) (*CourseEnrollment, error) {
+	args := m.Called(ctx, repoID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*CourseEnrollment), args.Error(1)
 }
 
 func (m *MockRepository) GetEnrollments(ctx context.Context, courseID int64) ([]*CourseEnrollment, error) {
@@ -483,4 +497,46 @@ func (m *MockOrgManager) GetTeam(ctx context.Context, orgID int64, name string) 
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*organization.Team), args.Error(1)
+}
+
+// MockPullRequestService mocks the PullRequestService interface.
+type MockPullRequestService struct {
+	mock.Mock
+}
+
+func (m *MockPullRequestService) CreatePullRequest(ctx context.Context, opts CreatePullRequestOptions) (*issues_model.PullRequest, error) {
+	args := m.Called(ctx, opts)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*issues_model.PullRequest), args.Error(1)
+}
+
+func (m *MockPullRequestService) AddPullRequestComment(ctx context.Context, prID int64, body string, doer *user_model.User) (*issues_model.Comment, error) {
+	args := m.Called(ctx, prID, body, doer)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*issues_model.Comment), args.Error(1)
+}
+
+func (m *MockPullRequestService) GetBranchChangedFiles(ctx context.Context, repoID int64, branch, baseBranch string) ([]string, error) {
+	args := m.Called(ctx, repoID, branch, baseBranch)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]string), args.Error(1)
+}
+
+// MockActionLogReader mocks the ActionLogReader interface.
+type MockActionLogReader struct {
+	mock.Mock
+}
+
+func (m *MockActionLogReader) ReadRunLogLines(ctx context.Context, runID int64) ([]string, error) {
+	args := m.Called(ctx, runID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]string), args.Error(1)
 }

@@ -64,6 +64,18 @@ func (r *xormRepository) UpdateSubmission(ctx context.Context, s *Submission) er
 	return nil
 }
 
+func (r *xormRepository) UpdateSubmissionPullRequestID(ctx context.Context, id, prID int64) error {
+	now := timeNowUnix()
+	_, err := db.GetEngine(ctx).ID(id).Cols("pull_request_id", "updated_unix").Update(&Submission{
+		PullRequestID: prID,
+		UpdatedUnix:   now,
+	})
+	if err != nil {
+		return fmt.Errorf("update submission pr id: %w", err)
+	}
+	return nil
+}
+
 func (r *xormRepository) GradeSubmission(ctx context.Context, submissionID int64, grade int, comment string, gradedByID int64) error {
 	now := timeNowUnix()
 	_, err := db.GetEngine(ctx).ID(submissionID).Cols("grade", "comment", "graded_by_id", "graded_unix", "status", "manual_grade", "updated_unix").Update(&Submission{

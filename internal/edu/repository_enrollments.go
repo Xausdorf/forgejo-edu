@@ -66,3 +66,18 @@ func (r *xormRepository) UpdateEnrollment(ctx context.Context, e *CourseEnrollme
 	}
 	return nil
 }
+
+func (r *xormRepository) GetEnrollmentByForkRepo(ctx context.Context, repoID int64) (*CourseEnrollment, error) {
+	if repoID == 0 {
+		return nil, nil
+	}
+	e := &CourseEnrollment{}
+	has, err := db.GetEngine(ctx).Where("student_fork_repo_id = ?", repoID).Get(e)
+	if err != nil {
+		return nil, fmt.Errorf("get enrollment by fork repo: %w", err)
+	}
+	if !has {
+		return nil, nil
+	}
+	return e, nil
+}

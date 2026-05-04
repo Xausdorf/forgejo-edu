@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 
+	issues_model "forgejo.org/models/issues"
 	"forgejo.org/models/organization"
 	"forgejo.org/models/perm"
 	repo_model "forgejo.org/models/repo"
@@ -113,6 +114,21 @@ type OrgManager interface {
 	GetTeam(ctx context.Context, orgID int64, name string) (*organization.Team, error)
 }
 
+// PullRequestService abstracts PR creation, commenting, and branch-diff
+// computation used by the edu notifier. Implemented by ForgejoAdapter.
+type PullRequestService interface {
+	CreatePullRequest(ctx context.Context, opts CreatePullRequestOptions) (*issues_model.PullRequest, error)
+	AddPullRequestComment(ctx context.Context, prID int64, body string, doer *user_model.User) (*issues_model.Comment, error)
+	GetBranchChangedFiles(ctx context.Context, repoID int64, branch, baseBranch string) ([]string, error)
+}
+
+// ActionLogReader abstracts reading of CI run logs. Implemented by
+// ForgejoAdapter.ReadRunLogLines. Decoupled from the notifier so unit tests
+// can supply log lines directly without hitting actions_model / storage.
+type ActionLogReader interface {
+	ReadRunLogLines(ctx context.Context, runID int64) ([]string, error)
+}
+
 // ForkRepoOptions is a subset of options needed for forking.
 type ForkRepoOptions struct {
 	BaseRepo *repo_model.Repository
@@ -141,6 +157,7 @@ type Repository interface {
 	GetSubmissionByEnrollmentAssignment(ctx context.Context, enrollmentID, assignmentID int64) (*Submission, error)
 	GetSubmissions(ctx context.Context, assignmentID int64) ([]*Submission, error)
 	UpdateSubmission(ctx context.Context, submission *Submission) error
+	UpdateSubmissionPullRequestID(ctx context.Context, id, prID int64) error
 
 	CreateCourse(ctx context.Context, course *Course) error
 	GetCourseByID(ctx context.Context, id int64) (*Course, error)
@@ -156,6 +173,7 @@ type Repository interface {
 	GetEnrollments(ctx context.Context, courseID int64) ([]*CourseEnrollment, error)
 	RemoveEnrollment(ctx context.Context, courseID, userID int64) error
 	UpdateEnrollment(ctx context.Context, enrollment *CourseEnrollment) error
+	GetEnrollmentByForkRepo(ctx context.Context, repoID int64) (*CourseEnrollment, error)
 
 	CreateImportDraft(ctx context.Context, draft *ImportDraft) error
 	GetImportDraft(ctx context.Context, id int64) (*ImportDraft, error)
