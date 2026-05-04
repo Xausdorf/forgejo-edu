@@ -13,6 +13,14 @@ import (
 //go:embed locale/*.json
 var localeFS embed.FS
 
+// Compile-time assertions: ForgejoAdapter must satisfy notifier dependencies.
+var (
+	_ PullRequestService = (*ForgejoAdapter)(nil)
+	_ ActionLogReader    = (*ForgejoAdapter)(nil)
+	_ UserCreator        = (*ForgejoAdapter)(nil)
+	_ RepoForker         = (*ForgejoAdapter)(nil)
+)
+
 func Init(ctx context.Context) error {
 	log.Info("Initializing Educational Extension...")
 
