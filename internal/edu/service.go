@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 
+	issues_model "forgejo.org/models/issues"
 	"forgejo.org/models/organization"
 	"forgejo.org/models/perm"
 	repo_model "forgejo.org/models/repo"
@@ -111,6 +112,21 @@ type OrgManager interface {
 	AddTeamMember(ctx context.Context, team *organization.Team, userID int64) error
 	RemoveTeamMember(ctx context.Context, team *organization.Team, userID int64) error
 	GetTeam(ctx context.Context, orgID int64, name string) (*organization.Team, error)
+}
+
+// PullRequestService abstracts PR creation, commenting, and branch-diff
+// computation used by the edu notifier. Implemented by ForgejoAdapter.
+type PullRequestService interface {
+	CreatePullRequest(ctx context.Context, opts CreatePullRequestOptions) (*issues_model.PullRequest, error)
+	AddPullRequestComment(ctx context.Context, prID int64, body string, doer *user_model.User) (*issues_model.Comment, error)
+	GetBranchChangedFiles(ctx context.Context, repoID int64, branch, baseBranch string) ([]string, error)
+}
+
+// ActionLogReader abstracts reading of CI run logs. Implemented by
+// ForgejoAdapter.ReadRunLogLines. Decoupled from the notifier so unit tests
+// can supply log lines directly without hitting actions_model / storage.
+type ActionLogReader interface {
+	ReadRunLogLines(ctx context.Context, runID int64) ([]string, error)
 }
 
 // ForkRepoOptions is a subset of options needed for forking.
