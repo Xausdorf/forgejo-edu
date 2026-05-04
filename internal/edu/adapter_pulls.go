@@ -159,3 +159,39 @@ func (a *ForgejoAdapter) GetPullRequestComments(ctx context.Context, prID int64)
 		Type:    issues_model.CommentTypeComment,
 	})
 }
+
+// GetBranchChangedFiles returns files changed in branch relative to baseBranch
+// in the same repository (git diff --name-only baseBranch...branch).
+func (a *ForgejoAdapter) GetBranchChangedFiles(ctx context.Context, repoID int64, branch, baseBranch string) ([]string, error) {
+	repo, err := repo_model.GetRepositoryByID(ctx, repoID)
+	if err != nil {
+		return nil, fmt.Errorf("load repo: %w", err)
+	}
+	gitRepo, err := git.OpenRepository(ctx, repo.RepoPath())
+	if err != nil {
+		return nil, fmt.Errorf("open repo: %w", err)
+	}
+	defer gitRepo.Close()
+
+	mergeBase, _, err := gitRepo.GetMergeBase("", baseBranch, branch)
+	if err != nil {
+		return nil, fmt.Errorf("merge base %s..%s: %w", baseBranch, branch, err)
+	}
+	headCommit, err := gitRepo.GetBranchCommit(branch)
+	if err != nil {
+		return nil, fmt.Errorf("get branch commit %s: %w", branch, err)
+	}
+
+	stdout, _, err := git.NewCommand(ctx, "diff", "--name-only").
+		AddDynamicArguments(mergeBase + "..." + headCommit.ID.String()).
+		RunStdString(&git.RunOpts{Dir: repo.RepoPath()})
+	if err != nil {
+		return nil, fmt.Errorf("git diff: %w", err)
+	}
+
+	raw := strings.TrimSpace(stdout)
+	if raw == "" {
+		return []string{}, nil
+	}
+	return strings.Split(raw, "\n"), nil
+}
