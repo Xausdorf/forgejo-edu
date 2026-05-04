@@ -70,6 +70,11 @@ func (m *MockRepository) UpdateSubmission(ctx context.Context, submission *Submi
 	return args.Error(0)
 }
 
+func (m *MockRepository) UpdateSubmissionPullRequestID(ctx context.Context, id, prID int64) error {
+	args := m.Called(ctx, id, prID)
+	return args.Error(0)
+}
+
 func (m *MockRepository) GetSubmissions(ctx context.Context, assignmentID int64) ([]*Submission, error) {
 	args := m.Called(ctx, assignmentID)
 	if args.Get(0) == nil {
@@ -160,6 +165,14 @@ func (m *MockRepository) GetEnrollmentByCourseUser(ctx context.Context, courseID
 	args := m.Called(ctx, courseID, userID)
 	v, _ := args.Get(0).(*CourseEnrollment)
 	return v, args.Error(1)
+}
+
+func (m *MockRepository) GetEnrollmentByForkRepo(ctx context.Context, repoID int64) (*CourseEnrollment, error) {
+	args := m.Called(ctx, repoID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*CourseEnrollment), args.Error(1)
 }
 
 func (m *MockRepository) GetEnrollments(ctx context.Context, courseID int64) ([]*CourseEnrollment, error) {

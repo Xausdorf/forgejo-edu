@@ -141,6 +141,7 @@ type Repository interface {
 	GetSubmissionByEnrollmentAssignment(ctx context.Context, enrollmentID, assignmentID int64) (*Submission, error)
 	GetSubmissions(ctx context.Context, assignmentID int64) ([]*Submission, error)
 	UpdateSubmission(ctx context.Context, submission *Submission) error
+	UpdateSubmissionPullRequestID(ctx context.Context, id, prID int64) error
 
 	CreateCourse(ctx context.Context, course *Course) error
 	GetCourseByID(ctx context.Context, id int64) (*Course, error)
@@ -156,6 +157,7 @@ type Repository interface {
 	GetEnrollments(ctx context.Context, courseID int64) ([]*CourseEnrollment, error)
 	RemoveEnrollment(ctx context.Context, courseID, userID int64) error
 	UpdateEnrollment(ctx context.Context, enrollment *CourseEnrollment) error
+	GetEnrollmentByForkRepo(ctx context.Context, repoID int64) (*CourseEnrollment, error)
 
 	CreateImportDraft(ctx context.Context, draft *ImportDraft) error
 	GetImportDraft(ctx context.Context, id int64) (*ImportDraft, error)
