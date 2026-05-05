@@ -145,6 +145,7 @@ type service struct {
 	forker RepoForker
 	users  UserCreator
 	orgs   OrgManager
+	pulls  PullRequestService
 }
 
 // Repository defines the data access layer interface.
@@ -224,13 +225,19 @@ func GetService() EducationalService {
 }
 
 // NewService creates a new instance of EducationalService.
-// If the provided UserCreator also implements OrgManager, it is used for org team management.
+//
+// users is variadic for backwards-compatibility with existing test call sites
+// that pass only (repo, forker). When users[0] also implements OrgManager
+// and/or PullRequestService, those interfaces are wired automatically.
 func NewService(repo Repository, forker RepoForker, users ...UserCreator) EducationalService {
 	s := &service{repo: repo, forker: forker}
 	if len(users) > 0 {
 		s.users = users[0]
 		if o, ok := users[0].(OrgManager); ok {
 			s.orgs = o
+		}
+		if p, ok := users[0].(PullRequestService); ok {
+			s.pulls = p
 		}
 	}
 	return s
