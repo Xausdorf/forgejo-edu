@@ -297,11 +297,6 @@ func (m *MockRepository) MarkSubmissionMerged(ctx context.Context, submissionID 
 	return args.Error(0)
 }
 
-func (m *MockRepository) AddSubmissionComment(ctx context.Context, submissionID int64, body string, doerID int64) error {
-	args := m.Called(ctx, submissionID, body, doerID)
-	return args.Error(0)
-}
-
 func (m *MockRepository) ResetApproval(ctx context.Context, submissionID int64) error {
 	args := m.Called(ctx, submissionID)
 	return args.Error(0)

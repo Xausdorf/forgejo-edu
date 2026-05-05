@@ -128,19 +128,6 @@ func (r *xormRepository) MarkSubmissionMerged(ctx context.Context, submissionID 
 	return nil
 }
 
-func (r *xormRepository) AddSubmissionComment(ctx context.Context, submissionID int64, body string, doerID int64) error {
-	now := timeNowUnix()
-	_, err := db.GetEngine(ctx).ID(submissionID).Cols("comment", "graded_by_id", "updated_unix").Update(&Submission{
-		Comment:     body,
-		GradedByID:  doerID,
-		UpdatedUnix: now,
-	})
-	if err != nil {
-		return fmt.Errorf("add submission comment: %w", err)
-	}
-	return nil
-}
-
 // ResetApproval reverts the submission status from approved back to done.
 // The grade, comment, manual_grade flag and grader fields are preserved —
 // the TA is expected to either re-approve with the same/updated grade or

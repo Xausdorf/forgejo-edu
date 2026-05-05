@@ -31,7 +31,10 @@ func (s *service) MergeSubmission(ctx context.Context, submissionID int64) error
 }
 
 func (s *service) AddSubmissionComment(ctx context.Context, submissionID int64, body string, doer *user_model.User) error {
-	return s.repo.AddSubmissionComment(ctx, submissionID, body, doer.ID)
+	_ = submissionID
+	_ = body
+	_ = doer
+	return fmt.Errorf("not implemented yet")
 }
 
 func (s *service) ResetApproval(ctx context.Context, submissionID int64) error {
