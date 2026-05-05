@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"forgejo.org/models"
 	issues_model "forgejo.org/models/issues"
 	repo_model "forgejo.org/models/repo"
 	user_model "forgejo.org/models/user"
@@ -183,6 +184,30 @@ func (a *ForgejoAdapter) GetPullRequest(ctx context.Context, prID int64) (*issue
 		}
 	}
 	return pr, nil
+}
+
+// GetUnmergedPullRequest returns the open PR (if any) from headRepoID:headBranch
+// to baseRepoID:baseBranch. Returns (nil, nil) if there is no open PR.
+func (a *ForgejoAdapter) GetUnmergedPullRequest(ctx context.Context, headRepoID, baseRepoID int64, headBranch, baseBranch string) (*issues_model.PullRequest, error) {
+	pr, err := issues_model.GetUnmergedPullRequest(ctx, headRepoID, baseRepoID, headBranch, baseBranch, issues_model.PullRequestFlowGithub)
+	if err != nil {
+		if issues_model.IsErrPullRequestNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get unmerged pr: %w", err)
+	}
+	if err := pr.LoadIssue(ctx); err != nil {
+		return nil, fmt.Errorf("load issue: %w", err)
+	}
+	return pr, nil
+}
+
+// IsMergeConflictError reports whether err is the well-known
+// models.ErrMergeConflicts (returned by services/pull.Merge when the merge
+// would leave conflicts). Wrapped here so the service layer does not import
+// forgejo.org/models directly.
+func (a *ForgejoAdapter) IsMergeConflictError(err error) bool {
+	return err != nil && models.IsErrMergeConflicts(err)
 }
 
 // GetBranchChangedFiles returns files changed in branch relative to baseBranch

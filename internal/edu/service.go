@@ -127,6 +127,8 @@ type PullRequestService interface {
 	MergePullRequest(ctx context.Context, opts MergePullRequestOptions) error
 	GetPullRequestComments(ctx context.Context, prID int64) ([]*issues_model.Comment, error)
 	GetPullRequest(ctx context.Context, prID int64) (*issues_model.PullRequest, error)
+	GetUnmergedPullRequest(ctx context.Context, headRepoID, baseRepoID int64, headBranch, baseBranch string) (*issues_model.PullRequest, error)
+	IsMergeConflictError(err error) bool
 }
 
 // ActionLogReader abstracts reading of CI run logs. Implemented by
