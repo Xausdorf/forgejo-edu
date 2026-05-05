@@ -1,0 +1,208 @@
+{{template "base/head" .}}
+<div role="main" aria-label="{{.Title}}" class="page-content edu submission-review">
+	<div class="ui container">
+		{{template "edu/navbar" .}}
+		{{template "base/alert" .}}
+
+		<h1 class="ui header">
+			{{svg "octicon-git-pull-request" 28}}
+			{{ctx.Locale.Tr "edu.review.title"}}
+		</h1>
+
+		<!-- Metadata -->
+		<div class="ui segment">
+			<h2 class="ui header">{{ctx.Locale.Tr "edu.review.metadata"}}</h2>
+			<p><strong>{{ctx.Locale.Tr "edu.assignment"}}:</strong> {{.Assignment.Title}}</p>
+			<p><strong>{{ctx.Locale.Tr "edu.student"}}:</strong>
+				{{if .Student}}{{.Student.Name}}{{else}}User #{{.Submission.UserID}}{{end}}
+			</p>
+			<p><strong>{{ctx.Locale.Tr "edu.review.branch"}}:</strong> <code>{{.Submission.BranchName}}</code></p>
+			<p><strong>{{ctx.Locale.Tr "edu.status"}}:</strong>
+				<span class="ui label
+					{{if eq (printf "%s" .Submission.Status) "approved"}}olive
+					{{else if eq (printf "%s" .Submission.Status) "merged"}}green
+					{{else if eq (printf "%s" .Submission.Status) "failed"}}red
+					{{else if eq (printf "%s" .Submission.Status) "done"}}blue
+					{{else}}grey{{end}}">
+					{{.Submission.Status}}
+				</span>
+			</p>
+			{{if and .Assignment.DeadlineUnix (gt .Assignment.DeadlineUnix 0)}}
+				<p><strong>{{ctx.Locale.Tr "edu.review.deadline"}}:</strong>
+					{{(DateUtils).AbsoluteShort .Assignment.DeadlineUnix}}
+				</p>
+			{{end}}
+			{{if .ForkLink}}
+				<p><strong>{{ctx.Locale.Tr "edu.review.fork"}}:</strong>
+					<a href="{{AppSubUrl}}/{{.ForkLink}}">{{ctx.Locale.Tr "edu.review.open_fork"}}</a>
+				</p>
+			{{end}}
+			{{if .PullRequestURL}}
+				<p>
+					<a class="ui small basic primary button" href="{{.PullRequestURL}}">
+						{{svg "octicon-link-external"}} {{ctx.Locale.Tr "edu.review.open_pr"}}
+					</a>
+				</p>
+			{{else}}
+				<div class="ui yellow message">{{ctx.Locale.Tr "edu.review.no_pr"}}</div>
+			{{end}}
+		</div>
+
+		<!-- Changed files -->
+		<div class="ui segment">
+			<h2 class="ui header">{{ctx.Locale.Tr "edu.review.changed_files"}}</h2>
+			{{if .ChangedFiles}}
+				<ul class="ui list">
+					{{range .ChangedFiles}}
+						<li><code>{{.}}</code></li>
+					{{end}}
+				</ul>
+			{{else}}
+				<p>{{ctx.Locale.Tr "edu.review.no_changed_files"}}</p>
+			{{end}}
+		</div>
+
+		<!-- CI Test Results -->
+		{{if .TestResults}}
+		<div class="ui segment">
+			<h2 class="ui header">{{svg "octicon-check-circle"}} {{ctx.Locale.Tr "edu.ci_test_results"}}</h2>
+			<table class="ui celled table">
+				<thead>
+					<tr>
+						<th>#</th>
+						<th>{{ctx.Locale.Tr "edu.commit"}}</th>
+						<th>{{ctx.Locale.Tr "edu.score"}}</th>
+						<th>{{ctx.Locale.Tr "edu.details"}}</th>
+						<th>{{ctx.Locale.Tr "edu.date"}}</th>
+					</tr>
+				</thead>
+				<tbody>
+					{{range .TestResults}}
+						<tr>
+							<td>{{.ID}}</td>
+							<td><code>{{if ge (len .CommitSHA) 7}}{{slice .CommitSHA 0 7}}{{else}}{{.CommitSHA}}{{end}}</code></td>
+							<td>
+								<span class="ui label {{if ge .Score 50}}green{{else}}red{{end}}">{{.Score}}%</span>
+							</td>
+							<td>{{.Details | SanitizeHTML}}</td>
+							<td>{{(DateUtils).AbsoluteShort .CreatedUnix}}</td>
+						</tr>
+					{{end}}
+				</tbody>
+			</table>
+		</div>
+		{{end}}
+
+		<!-- Comments / discussion -->
+		<div class="ui segment">
+			<h2 class="ui header">{{svg "octicon-comment-discussion"}} {{ctx.Locale.Tr "edu.review.comments"}}</h2>
+			{{if .Comments}}
+				<div class="ui comments">
+					{{range .Comments}}
+						<div class="comment">
+							<div class="content">
+								<a class="author">
+									{{if .Poster}}{{.Poster.Name}}{{else}}user #{{.PosterID}}{{end}}
+								</a>
+								<div class="metadata">
+									<span class="date">{{(DateUtils).AbsoluteShort .CreatedUnix}}</span>
+								</div>
+								<div class="text">{{.Content | SanitizeHTML}}</div>
+							</div>
+						</div>
+					{{end}}
+				</div>
+			{{else}}
+				<p>{{ctx.Locale.Tr "edu.review.no_comments"}}</p>
+			{{end}}
+
+			{{if .PullRequestURL}}
+				<form class="ui form" style="margin-top: 16px;"
+				      action="{{AppSubUrl}}/edu/teacher/assignments/{{.Assignment.ID}}/submissions/{{.Submission.ID}}/comment"
+				      method="post">
+					{{.CsrfTokenHtml}}
+					<div class="field">
+						<label>{{ctx.Locale.Tr "edu.review.comment_body"}}</label>
+						<textarea name="body" rows="3" required></textarea>
+					</div>
+					<button class="ui primary button" type="submit">
+						{{svg "octicon-comment"}} {{ctx.Locale.Tr "edu.review.post_comment"}}
+					</button>
+				</form>
+			{{end}}
+		</div>
+
+		<!-- Approve / Merge / Reset-approval -->
+		<div class="ui segment">
+			<h2 class="ui header">{{svg "octicon-check"}} {{ctx.Locale.Tr "edu.review.approve_form"}}</h2>
+
+			{{if eq (printf "%s" .Submission.Status) "merged"}}
+				<div class="ui green message">
+					{{ctx.Locale.Tr "edu.review.merged_label"}}
+					{{if .Submission.IsGraded}} — {{.Submission.Grade}}/100{{end}}
+				</div>
+			{{else}}
+				{{if eq (printf "%s" .Submission.Status) "approved"}}
+					<div class="ui olive message">
+						<p><strong>{{ctx.Locale.Tr "edu.review.approved_label"}}</strong>:
+							<span class="ui large purple label">{{.Submission.Grade}}/100</span>
+							{{if .Grader}}<small>{{ctx.Locale.Tr "edu.graded_by"}} {{.Grader.Name}} — {{(DateUtils).AbsoluteShort .Submission.GradedUnix}}</small>{{end}}
+						</p>
+						{{if .Submission.Comment}}
+							<p><strong>{{ctx.Locale.Tr "edu.comment"}}:</strong> {{.Submission.Comment | SanitizeHTML}}</p>
+						{{end}}
+						<form action="{{AppSubUrl}}/edu/teacher/assignments/{{.Assignment.ID}}/submissions/{{.Submission.ID}}/reset-approval"
+						      method="post" style="display:inline-block; margin-top:6px;">
+							{{.CsrfTokenHtml}}
+							<button class="ui small orange button" type="submit"
+							        onclick="return confirm('{{ctx.Locale.Tr "edu.review.reset_approval_confirm"}}')">
+								{{svg "octicon-sync"}} {{ctx.Locale.Tr "edu.review.reset_approval"}}
+							</button>
+						</form>
+					</div>
+				{{end}}
+
+				<form class="ui form" action="{{AppSubUrl}}/edu/teacher/assignments/{{.Assignment.ID}}/submissions/{{.Submission.ID}}/approve" method="post">
+					{{.CsrfTokenHtml}}
+					<div class="field">
+						<label>{{ctx.Locale.Tr "edu.review.grade"}}</label>
+						<input type="number" name="grade" min="0" max="100"
+						       value="{{if .Submission.IsGraded}}{{.Submission.Grade}}{{end}}" required>
+					</div>
+					<div class="field">
+						<label>{{ctx.Locale.Tr "edu.comment"}}</label>
+						<textarea name="comment" rows="3">{{.Submission.Comment}}</textarea>
+					</div>
+					<button class="ui primary button" type="submit">
+						{{svg "octicon-check"}} {{ctx.Locale.Tr "edu.review.approve_button"}}
+					</button>
+				</form>
+
+				<div class="ui divider"></div>
+
+				<form action="{{AppSubUrl}}/edu/teacher/assignments/{{.Assignment.ID}}/submissions/{{.Submission.ID}}/merge"
+				      method="post" style="margin-top:8px;">
+					{{.CsrfTokenHtml}}
+					<button class="ui green button"
+					        type="submit"
+					        {{if ne (printf "%s" .Submission.Status) "approved"}}disabled{{end}}
+					        title="{{if ne (printf "%s" .Submission.Status) "approved"}}{{ctx.Locale.Tr "edu.review.merge_disabled_hint"}}{{end}}">
+						{{svg "octicon-git-merge"}} {{ctx.Locale.Tr "edu.review.merge_button"}}
+					</button>
+					{{if ne (printf "%s" .Submission.Status) "approved"}}
+						<span class="muted-links" style="margin-left:8px;">
+							{{ctx.Locale.Tr "edu.review.merge_disabled_hint"}}
+						</span>
+					{{end}}
+				</form>
+			{{end}}
+		</div>
+
+		<div style="margin-top: 15px;">
+			<a class="ui button" href="{{AppSubUrl}}/edu/teacher/assignments/{{.Assignment.ID}}/submissions">
+				{{svg "octicon-arrow-left"}} {{ctx.Locale.Tr "edu.back_to_submissions"}}
+			</a>
+		</div>
+	</div>
+</div>
+{{template "base/footer" .}}
