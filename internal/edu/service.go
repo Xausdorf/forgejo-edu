@@ -81,8 +81,9 @@ type EducationalService interface {
 
 	GetTestResults(ctx context.Context, submissionID int64) ([]*TestResult, error)
 	GetLatestTestResult(ctx context.Context, submissionID int64) (*TestResult, error)
-	GradeSubmission(ctx context.Context, submissionID int64, grade int, comment string, gradedByID int64) error
-	ResetToAutoGrade(ctx context.Context, submissionID int64) error
+	ApproveSubmission(ctx context.Context, submissionID int64, grade int, comment string, gradedByID int64) error
+	MarkSubmissionMerged(ctx context.Context, submissionID int64) error
+	ResetApproval(ctx context.Context, submissionID int64) error
 }
 
 // RepoForker abstracts the repository forking, retrieval, and sync logic.
@@ -206,9 +207,10 @@ type Repository interface {
 	CreateTestResult(ctx context.Context, tr *TestResult) error
 	GetTestResultsBySubmission(ctx context.Context, submissionID int64) ([]*TestResult, error)
 	GetLatestTestResult(ctx context.Context, submissionID int64) (*TestResult, error)
-	GradeSubmission(ctx context.Context, submissionID int64, grade int, comment string, gradedByID int64) error
 	AutoGradeSubmission(ctx context.Context, submissionID int64, grade int) error
-	ResetToAutoGrade(ctx context.Context, submissionID int64, grade int) error
+	ApproveSubmission(ctx context.Context, submissionID int64, grade int, comment string, gradedByID int64) error
+	MarkSubmissionMerged(ctx context.Context, submissionID int64) error
+	ResetApproval(ctx context.Context, submissionID int64) error
 }
 
 var globalService EducationalService

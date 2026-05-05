@@ -282,18 +282,23 @@ func (m *MockRepository) GetLatestTestResult(ctx context.Context, submissionID i
 	return args.Get(0).(*TestResult), args.Error(1)
 }
 
-func (m *MockRepository) GradeSubmission(ctx context.Context, submissionID int64, grade int, comment string, gradedByID int64) error {
-	args := m.Called(ctx, submissionID, grade, comment, gradedByID)
-	return args.Error(0)
-}
-
 func (m *MockRepository) AutoGradeSubmission(ctx context.Context, submissionID int64, grade int) error {
 	args := m.Called(ctx, submissionID, grade)
 	return args.Error(0)
 }
 
-func (m *MockRepository) ResetToAutoGrade(ctx context.Context, submissionID int64, grade int) error {
-	args := m.Called(ctx, submissionID, grade)
+func (m *MockRepository) ApproveSubmission(ctx context.Context, submissionID int64, grade int, comment string, gradedByID int64) error {
+	args := m.Called(ctx, submissionID, grade, comment, gradedByID)
+	return args.Error(0)
+}
+
+func (m *MockRepository) MarkSubmissionMerged(ctx context.Context, submissionID int64) error {
+	args := m.Called(ctx, submissionID)
+	return args.Error(0)
+}
+
+func (m *MockRepository) ResetApproval(ctx context.Context, submissionID int64) error {
+	args := m.Called(ctx, submissionID)
 	return args.Error(0)
 }
 

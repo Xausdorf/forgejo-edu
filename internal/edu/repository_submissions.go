@@ -76,23 +76,6 @@ func (r *xormRepository) UpdateSubmissionPullRequestID(ctx context.Context, id, 
 	return nil
 }
 
-func (r *xormRepository) GradeSubmission(ctx context.Context, submissionID int64, grade int, comment string, gradedByID int64) error {
-	now := timeNowUnix()
-	_, err := db.GetEngine(ctx).ID(submissionID).Cols("grade", "comment", "graded_by_id", "graded_unix", "status", "manual_grade", "updated_unix").Update(&Submission{
-		Grade:       grade,
-		Comment:     comment,
-		GradedByID:  gradedByID,
-		GradedUnix:  now,
-		Status:      StatusSubmissionDone,
-		ManualGrade: true,
-		UpdatedUnix: now,
-	})
-	if err != nil {
-		return fmt.Errorf("grade submission: %w", err)
-	}
-	return nil
-}
-
 func (r *xormRepository) AutoGradeSubmission(ctx context.Context, submissionID int64, grade int) error {
 	now := timeNowUnix()
 	_, err := db.GetEngine(ctx).Where("id = ? AND manual_grade = ?", submissionID, false).
@@ -107,20 +90,63 @@ func (r *xormRepository) AutoGradeSubmission(ctx context.Context, submissionID i
 	return nil
 }
 
-func (r *xormRepository) ResetToAutoGrade(ctx context.Context, submissionID int64, grade int) error {
+// ApproveSubmission marks the submission as approved by an instructor:
+// status=approved, manual_grade=true, fixates grade/comment/grader.
+// Caller is expected to have validated the grade range (0..100) at the
+// service level — repository performs the raw update.
+func (r *xormRepository) ApproveSubmission(ctx context.Context, submissionID int64, grade int, comment string, gradedByID int64) error {
 	now := timeNowUnix()
-	var status SubmissionStatus = StatusSubmissionDone
-	if grade < 0 {
-		status = StatusSubmissionPending
-	}
-	_, err := db.GetEngine(ctx).ID(submissionID).Cols("grade", "manual_grade", "status", "updated_unix").Update(&Submission{
+	_, err := db.GetEngine(ctx).ID(submissionID).Cols(
+		"grade", "comment", "graded_by_id", "graded_unix",
+		"status", "manual_grade", "updated_unix",
+	).Update(&Submission{
 		Grade:       grade,
-		ManualGrade: false,
-		Status:      status,
+		Comment:     comment,
+		GradedByID:  gradedByID,
+		GradedUnix:  now,
+		Status:      StatusSubmissionApproved,
+		ManualGrade: true,
 		UpdatedUnix: now,
 	})
 	if err != nil {
-		return fmt.Errorf("reset to auto grade: %w", err)
+		return fmt.Errorf("approve submission: %w", err)
+	}
+	return nil
+}
+
+// MarkSubmissionMerged transitions the submission status from approved to merged.
+// The actual git-side merge is performed separately via PullRequestService.
+func (r *xormRepository) MarkSubmissionMerged(ctx context.Context, submissionID int64) error {
+	now := timeNowUnix()
+	_, err := db.GetEngine(ctx).ID(submissionID).Cols("status", "updated_unix").Update(&Submission{
+		Status:      StatusSubmissionMerged,
+		UpdatedUnix: now,
+	})
+	if err != nil {
+		return fmt.Errorf("mark submission merged: %w", err)
+	}
+	return nil
+}
+
+// ResetApproval reverts the submission status from approved back to done.
+// The grade, comment, manual_grade flag and grader fields are preserved —
+// the TA is expected to either re-approve with the same/updated grade or
+// adjust the grade and approve again. Defensive WHERE on the status guards
+// against accidental reset of a merged submission.
+func (r *xormRepository) ResetApproval(ctx context.Context, submissionID int64) error {
+	now := timeNowUnix()
+	affected, err := db.GetEngine(ctx).
+		Where("id = ? AND status = ?", submissionID, StatusSubmissionApproved).
+		Cols("status", "updated_unix").
+		Update(&Submission{
+			Status:      StatusSubmissionDone,
+			UpdatedUnix: now,
+		})
+	if err != nil {
+		return fmt.Errorf("reset approval: %w", err)
+	}
+	if affected == 0 {
+		return fmt.Errorf("submission %d is not in approved state", submissionID)
 	}
 	return nil
 }
