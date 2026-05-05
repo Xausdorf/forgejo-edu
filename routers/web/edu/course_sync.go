@@ -170,7 +170,7 @@ func MergeAllCourseSyncPost(ctx *context.Context) {
 		ctx.Redirect(courseSyncURL(ctx))
 		return
 	}
-	ctx.Flash.Success(ctx.Tr("edu.sync.merge_all_success") + " (" + strconv.Itoa(merged) + ")")
+	ctx.Flash.Success(string(ctx.Tr("edu.sync.merge_all_success")) + " (" + strconv.Itoa(merged) + ")")
 	ctx.Redirect(courseSyncURL(ctx))
 }
 
