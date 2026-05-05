@@ -81,8 +81,10 @@ type EducationalService interface {
 
 	GetTestResults(ctx context.Context, submissionID int64) ([]*TestResult, error)
 	GetLatestTestResult(ctx context.Context, submissionID int64) (*TestResult, error)
+	GetSubmissionByID(ctx context.Context, id int64) (*Submission, error)
 	ApproveSubmission(ctx context.Context, submissionID int64, grade int, comment string, gradedByID int64) error
-	MarkSubmissionMerged(ctx context.Context, submissionID int64) error
+	MergeSubmission(ctx context.Context, submissionID int64) error
+	AddSubmissionComment(ctx context.Context, submissionID int64, body string, doer *user_model.User) error
 	ResetApproval(ctx context.Context, submissionID int64) error
 }
 
@@ -214,6 +216,7 @@ type Repository interface {
 	AutoGradeSubmission(ctx context.Context, submissionID int64, grade int) error
 	ApproveSubmission(ctx context.Context, submissionID int64, grade int, comment string, gradedByID int64) error
 	MarkSubmissionMerged(ctx context.Context, submissionID int64) error
+	AddSubmissionComment(ctx context.Context, submissionID int64, body string, doerID int64) error
 	ResetApproval(ctx context.Context, submissionID int64) error
 }
 
