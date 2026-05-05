@@ -14,6 +14,11 @@
 						</h1>
 					</div>
 					<div class="right menu">
+						{{if and (gt .Course.OrgID 0) (gt .Course.TasksMasterRepoID 0)}}
+							<a class="ui button" href="{{AppSubUrl}}/edu/teacher/courses/{{.Course.ID}}/sync">
+								{{svg "octicon-sync"}} {{ctx.Locale.Tr "edu.sync.title"}}
+							</a>
+						{{end}}
 						<a class="ui button" href="{{AppSubUrl}}/edu/teacher/courses/{{.Course.ID}}/edit">
 							{{svg "octicon-pencil"}} {{ctx.Locale.Tr "edu.edit"}}
 						</a>
