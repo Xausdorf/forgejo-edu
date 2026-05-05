@@ -81,8 +81,11 @@ type EducationalService interface {
 
 	GetTestResults(ctx context.Context, submissionID int64) ([]*TestResult, error)
 	GetLatestTestResult(ctx context.Context, submissionID int64) (*TestResult, error)
-	GradeSubmission(ctx context.Context, submissionID int64, grade int, comment string, gradedByID int64) error
-	ResetToAutoGrade(ctx context.Context, submissionID int64) error
+	GetSubmissionByID(ctx context.Context, id int64) (*Submission, error)
+	ApproveSubmission(ctx context.Context, submissionID int64, grade int, comment string, gradedByID int64) error
+	MergeSubmission(ctx context.Context, submissionID int64) error
+	AddSubmissionComment(ctx context.Context, submissionID int64, body string, doer *user_model.User) error
+	ResetApproval(ctx context.Context, submissionID int64) error
 }
 
 // RepoForker abstracts the repository forking, retrieval, and sync logic.
@@ -120,6 +123,9 @@ type PullRequestService interface {
 	CreatePullRequest(ctx context.Context, opts CreatePullRequestOptions) (*issues_model.PullRequest, error)
 	AddPullRequestComment(ctx context.Context, prID int64, body string, doer *user_model.User) (*issues_model.Comment, error)
 	GetBranchChangedFiles(ctx context.Context, repoID int64, branch, baseBranch string) ([]string, error)
+	MergePullRequest(ctx context.Context, opts MergePullRequestOptions) error
+	GetPullRequestComments(ctx context.Context, prID int64) ([]*issues_model.Comment, error)
+	GetPullRequest(ctx context.Context, prID int64) (*issues_model.PullRequest, error)
 }
 
 // ActionLogReader abstracts reading of CI run logs. Implemented by
@@ -141,6 +147,7 @@ type service struct {
 	forker RepoForker
 	users  UserCreator
 	orgs   OrgManager
+	pulls  PullRequestService
 }
 
 // Repository defines the data access layer interface.
@@ -206,9 +213,10 @@ type Repository interface {
 	CreateTestResult(ctx context.Context, tr *TestResult) error
 	GetTestResultsBySubmission(ctx context.Context, submissionID int64) ([]*TestResult, error)
 	GetLatestTestResult(ctx context.Context, submissionID int64) (*TestResult, error)
-	GradeSubmission(ctx context.Context, submissionID int64, grade int, comment string, gradedByID int64) error
 	AutoGradeSubmission(ctx context.Context, submissionID int64, grade int) error
-	ResetToAutoGrade(ctx context.Context, submissionID int64, grade int) error
+	ApproveSubmission(ctx context.Context, submissionID int64, grade int, comment string, gradedByID int64) error
+	MarkSubmissionMerged(ctx context.Context, submissionID int64) error
+	ResetApproval(ctx context.Context, submissionID int64) error
 }
 
 var globalService EducationalService
@@ -219,13 +227,19 @@ func GetService() EducationalService {
 }
 
 // NewService creates a new instance of EducationalService.
-// If the provided UserCreator also implements OrgManager, it is used for org team management.
+//
+// users is variadic for backwards-compatibility with existing test call sites
+// that pass only (repo, forker). When users[0] also implements OrgManager
+// and/or PullRequestService, those interfaces are wired automatically.
 func NewService(repo Repository, forker RepoForker, users ...UserCreator) EducationalService {
 	s := &service{repo: repo, forker: forker}
 	if len(users) > 0 {
 		s.users = users[0]
 		if o, ok := users[0].(OrgManager); ok {
 			s.orgs = o
+		}
+		if p, ok := users[0].(PullRequestService); ok {
+			s.pulls = p
 		}
 	}
 	return s

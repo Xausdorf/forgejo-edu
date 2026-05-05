@@ -282,18 +282,23 @@ func (m *MockRepository) GetLatestTestResult(ctx context.Context, submissionID i
 	return args.Get(0).(*TestResult), args.Error(1)
 }
 
-func (m *MockRepository) GradeSubmission(ctx context.Context, submissionID int64, grade int, comment string, gradedByID int64) error {
-	args := m.Called(ctx, submissionID, grade, comment, gradedByID)
-	return args.Error(0)
-}
-
 func (m *MockRepository) AutoGradeSubmission(ctx context.Context, submissionID int64, grade int) error {
 	args := m.Called(ctx, submissionID, grade)
 	return args.Error(0)
 }
 
-func (m *MockRepository) ResetToAutoGrade(ctx context.Context, submissionID int64, grade int) error {
-	args := m.Called(ctx, submissionID, grade)
+func (m *MockRepository) ApproveSubmission(ctx context.Context, submissionID int64, grade int, comment string, gradedByID int64) error {
+	args := m.Called(ctx, submissionID, grade, comment, gradedByID)
+	return args.Error(0)
+}
+
+func (m *MockRepository) MarkSubmissionMerged(ctx context.Context, submissionID int64) error {
+	args := m.Called(ctx, submissionID)
+	return args.Error(0)
+}
+
+func (m *MockRepository) ResetApproval(ctx context.Context, submissionID int64) error {
+	args := m.Called(ctx, submissionID)
 	return args.Error(0)
 }
 
@@ -526,6 +531,27 @@ func (m *MockPullRequestService) GetBranchChangedFiles(ctx context.Context, repo
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]string), args.Error(1)
+}
+
+func (m *MockPullRequestService) MergePullRequest(ctx context.Context, opts MergePullRequestOptions) error {
+	args := m.Called(ctx, opts)
+	return args.Error(0)
+}
+
+func (m *MockPullRequestService) GetPullRequestComments(ctx context.Context, prID int64) ([]*issues_model.Comment, error) {
+	args := m.Called(ctx, prID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*issues_model.Comment), args.Error(1)
+}
+
+func (m *MockPullRequestService) GetPullRequest(ctx context.Context, prID int64) (*issues_model.PullRequest, error) {
+	args := m.Called(ctx, prID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*issues_model.PullRequest), args.Error(1)
 }
 
 // MockActionLogReader mocks the ActionLogReader interface.
