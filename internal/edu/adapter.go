@@ -103,6 +103,24 @@ func (a *ForgejoAdapter) SyncFork(ctx context.Context, doer *user_model.User, fo
 	})
 }
 
+// PushBranchToFork force-pushes srcBranch from the fork's BaseRepo to dstBranch
+// on the fork, using InternalPushingEnvironment to bypass branch protection.
+//
+// Used by course sync: srcBranch="main", dstBranch="course-sync". Force-push is
+// intentional — the course-sync branch is server-managed (tracks tasks-master/main),
+// students are not expected to commit to it.
+func (a *ForgejoAdapter) PushBranchToFork(ctx context.Context, doer *user_model.User, forkRepo *repo_model.Repository, srcBranch, dstBranch string) error {
+	if err := forkRepo.GetBaseRepo(ctx); err != nil {
+		return fmt.Errorf("get base repo: %w", err)
+	}
+	return git.Push(ctx, forkRepo.BaseRepo.RepoPath(), git.PushOptions{
+		Remote: forkRepo.RepoPath(),
+		Branch: fmt.Sprintf("+%s:%s", srcBranch, dstBranch),
+		Env:    repo_module.InternalPushingEnvironment(doer, forkRepo),
+		Force:  true,
+	})
+}
+
 // GetDefaultBranch returns the default branch name for a repository.
 func (a *ForgejoAdapter) GetDefaultBranch(ctx context.Context, repoID int64) (string, error) {
 	repo, err := repo_model.GetRepositoryByID(ctx, repoID)

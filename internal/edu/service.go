@@ -93,6 +93,7 @@ type RepoForker interface {
 	ForkRepositoryAndUpdates(ctx context.Context, doer, owner *user_model.User, opts ForkRepoOptions) (*repo_model.Repository, error)
 	GetRepositoryByID(ctx context.Context, id int64) (*repo_model.Repository, error)
 	SyncFork(ctx context.Context, doer *user_model.User, forkRepo *repo_model.Repository, branch string) error
+	PushBranchToFork(ctx context.Context, doer *user_model.User, forkRepo *repo_model.Repository, srcBranch, dstBranch string) error
 	GetDefaultBranch(ctx context.Context, repoID int64) (string, error)
 	AddCollaborator(ctx context.Context, repoID, userID int64, mode perm.AccessMode) error
 	RemoveCollaborator(ctx context.Context, repoID, userID int64) error

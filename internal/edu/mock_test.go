@@ -440,6 +440,11 @@ func (m *MockRepoForker) SyncFork(ctx context.Context, doer *user_model.User, fo
 	return args.Error(0)
 }
 
+func (m *MockRepoForker) PushBranchToFork(ctx context.Context, doer *user_model.User, forkRepo *repo_model.Repository, srcBranch, dstBranch string) error {
+	args := m.Called(ctx, doer, forkRepo, srcBranch, dstBranch)
+	return args.Error(0)
+}
+
 func (m *MockRepoForker) GetDefaultBranch(ctx context.Context, repoID int64) (string, error) {
 	args := m.Called(ctx, repoID)
 	return args.String(0), args.Error(1)
