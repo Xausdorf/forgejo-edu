@@ -533,6 +533,27 @@ func (m *MockPullRequestService) GetBranchChangedFiles(ctx context.Context, repo
 	return args.Get(0).([]string), args.Error(1)
 }
 
+func (m *MockPullRequestService) MergePullRequest(ctx context.Context, opts MergePullRequestOptions) error {
+	args := m.Called(ctx, opts)
+	return args.Error(0)
+}
+
+func (m *MockPullRequestService) GetPullRequestComments(ctx context.Context, prID int64) ([]*issues_model.Comment, error) {
+	args := m.Called(ctx, prID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*issues_model.Comment), args.Error(1)
+}
+
+func (m *MockPullRequestService) GetPullRequest(ctx context.Context, prID int64) (*issues_model.PullRequest, error) {
+	args := m.Called(ctx, prID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*issues_model.PullRequest), args.Error(1)
+}
+
 // MockActionLogReader mocks the ActionLogReader interface.
 type MockActionLogReader struct {
 	mock.Mock

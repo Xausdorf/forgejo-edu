@@ -121,6 +121,9 @@ type PullRequestService interface {
 	CreatePullRequest(ctx context.Context, opts CreatePullRequestOptions) (*issues_model.PullRequest, error)
 	AddPullRequestComment(ctx context.Context, prID int64, body string, doer *user_model.User) (*issues_model.Comment, error)
 	GetBranchChangedFiles(ctx context.Context, repoID int64, branch, baseBranch string) ([]string, error)
+	MergePullRequest(ctx context.Context, opts MergePullRequestOptions) error
+	GetPullRequestComments(ctx context.Context, prID int64) ([]*issues_model.Comment, error)
+	GetPullRequest(ctx context.Context, prID int64) (*issues_model.PullRequest, error)
 }
 
 // ActionLogReader abstracts reading of CI run logs. Implemented by

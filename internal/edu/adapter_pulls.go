@@ -160,6 +160,31 @@ func (a *ForgejoAdapter) GetPullRequestComments(ctx context.Context, prID int64)
 	})
 }
 
+// GetPullRequest loads a PR by ID with HeadRepo, BaseRepo, Issue and Poster
+// preloaded — enough to render a link, title, status, head/base branches in
+// the edu submission-review template.
+func (a *ForgejoAdapter) GetPullRequest(ctx context.Context, prID int64) (*issues_model.PullRequest, error) {
+	pr, err := issues_model.GetPullRequestByID(ctx, prID)
+	if err != nil {
+		return nil, fmt.Errorf("load PR: %w", err)
+	}
+	if err := pr.LoadHeadRepo(ctx); err != nil {
+		return nil, fmt.Errorf("load head repo: %w", err)
+	}
+	if err := pr.LoadBaseRepo(ctx); err != nil {
+		return nil, fmt.Errorf("load base repo: %w", err)
+	}
+	if err := pr.LoadIssue(ctx); err != nil {
+		return nil, fmt.Errorf("load issue: %w", err)
+	}
+	if pr.Issue != nil && pr.Issue.PosterID > 0 {
+		if err := pr.Issue.LoadPoster(ctx); err != nil {
+			return nil, fmt.Errorf("load poster: %w", err)
+		}
+	}
+	return pr, nil
+}
+
 // GetBranchChangedFiles returns files changed in branch relative to baseBranch
 // in the same repository (git diff --name-only baseBranch...branch).
 func (a *ForgejoAdapter) GetBranchChangedFiles(ctx context.Context, repoID int64, branch, baseBranch string) ([]string, error) {
