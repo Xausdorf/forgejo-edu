@@ -68,6 +68,14 @@ type EducationalService interface {
 	GetDistributeTaskByAssignment(ctx context.Context, assignmentID int64) (*DistributeTask, error)
 	GetDistributeTaskByID(ctx context.Context, id int64) (*DistributeTask, error)
 
+	// Course sync (course-level)
+	StartCourseSync(ctx context.Context, courseID, doerID int64) (*CourseSyncTask, error)
+	GetCourseSyncTaskByCourse(ctx context.Context, courseID int64) (*CourseSyncTask, error)
+	GetCourseSyncTaskByID(ctx context.Context, id int64) (*CourseSyncTask, error)
+	ListCourseSyncPRsByTask(ctx context.Context, taskID int64) ([]*CourseSyncPR, error)
+	MergeAllCourseSyncPRs(ctx context.Context, taskID, doerID int64) (mergedCount int, err error)
+	MergeCourseSyncPR(ctx context.Context, syncPRID, doerID int64) error
+
 	EnrollUser(ctx context.Context, opts EnrollUserOptions) error
 	GetEnrollments(ctx context.Context, courseID int64) ([]*CourseEnrollment, error)
 	RemoveEnrollment(ctx context.Context, courseID, userID int64) error
