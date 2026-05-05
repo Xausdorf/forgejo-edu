@@ -2,8 +2,10 @@ package edu
 
 import (
 	"net/http"
+	"strings"
 
 	"forgejo.org/internal/edu"
+	repo_model "forgejo.org/models/repo"
 	user_model "forgejo.org/models/user"
 	"forgejo.org/modules/base"
 	"forgejo.org/modules/log"
@@ -12,203 +14,252 @@ import (
 )
 
 const (
-	tplSubmissionDetail base.TplName = "edu/submission_detail"
+	tplSubmissionReview base.TplName = "edu/submission_review"
 )
 
-func SubmissionDetail(ctx *context.Context) {
-	ctx.Data["Title"] = "Submission Detail"
-	ctx.Data["PageIsEduAssignments"] = true
+// reviewURL returns the canonical URL for the review page of a given
+// (assignment, submission) pair, used by handlers that redirect back after
+// a POST.
+func reviewURL(ctx *context.Context) string {
+	return setting.AppSubURL + "/edu/teacher/assignments/" + ctx.Params(":id") +
+		"/submissions/" + ctx.Params(":subID")
+}
 
+func submissionsURL(ctx *context.Context) string {
+	return setting.AppSubURL + "/edu/teacher/assignments/" + ctx.Params(":id") + "/submissions"
+}
+
+// loadReviewSubject is shared by all review handlers. Returns (assignment, submission, ok).
+// If ok is false, the response has already been written (404/forbidden/server-error).
+func loadReviewSubject(ctx *context.Context) (*edu.Assignment, *edu.Submission, bool) {
+	if !isEduInstructor(ctx) {
+		ctx.Error(http.StatusForbidden, "Only instructors can access this page")
+		return nil, nil, false
+	}
 	assignmentID := ctx.ParamsInt64(":id")
 	subID := ctx.ParamsInt64(":subID")
-
 	svc := edu.GetService()
 	if svc == nil {
 		ctx.ServerError("GetService", nil)
-		return
+		return nil, nil, false
 	}
-
 	assignment, err := svc.GetAssignmentByID(ctx, assignmentID)
 	if err != nil {
 		ctx.ServerError("GetAssignmentByID", err)
-		return
+		return nil, nil, false
 	}
 	if assignment == nil {
 		ctx.NotFound("Assignment not found", nil)
+		return nil, nil, false
+	}
+	submission, err := svc.GetSubmissionByID(ctx, subID)
+	if err != nil {
+		ctx.ServerError("GetSubmissionByID", err)
+		return nil, nil, false
+	}
+	if submission == nil || submission.AssignmentID != assignment.ID {
+		ctx.NotFound("Submission not found for this assignment", nil)
+		return nil, nil, false
+	}
+	return assignment, submission, true
+}
+
+// SubmissionReview renders the review page for a single submission.
+func SubmissionReview(ctx *context.Context) {
+	ctx.Data["Title"] = ctx.Tr("edu.review.title")
+	ctx.Data["PageIsEduAssignments"] = true
+
+	assignment, submission, ok := loadReviewSubject(ctx)
+	if !ok {
 		return
 	}
 	ctx.Data["Assignment"] = assignment
-
-	// TODO: repo-based permission check
-	if !isEduInstructor(ctx) {
-		ctx.Error(http.StatusForbidden, "Only instructors can view this page")
-		return
-	}
-
-	submissions, err := svc.GetSubmissions(ctx, assignmentID)
-	if err != nil {
-		ctx.ServerError("GetSubmissions", err)
-		return
-	}
-
-	// Find the specific submission
-	for _, s := range submissions {
-		if s.ID == subID {
-			ctx.Data["Submission"] = s
-
-			// Load student info
-			u, err := user_model.GetUserByID(ctx, s.UserID)
-			if err != nil {
-				log.Error("Failed to get user %d: %v", s.UserID, err)
-			} else {
-				ctx.Data["Student"] = u
-			}
-
-			// Load grader info
-			if s.GradedByID > 0 {
-				grader, err := user_model.GetUserByID(ctx, s.GradedByID)
-				if err == nil {
-					ctx.Data["Grader"] = grader
-				}
-			}
-
-			// TODO: student fork link
-
-			break
-		}
-	}
-
-	if ctx.Data["Submission"] == nil {
-		ctx.NotFound("Submission not found", nil)
-		return
-	}
-
-	testResults, err := svc.GetTestResults(ctx, subID)
-	if err != nil {
-		log.Error("Failed to get test results: %v", err)
-	}
-	ctx.Data["TestResults"] = testResults
-
-	setEduNavContext(ctx)
-	ctx.HTML(http.StatusOK, tplSubmissionDetail)
-}
-
-func GradeSubmissionPost(ctx *context.Context) {
-	assignmentID := ctx.ParamsInt64(":id")
-	subID := ctx.ParamsInt64(":subID")
+	ctx.Data["Submission"] = submission
 
 	svc := edu.GetService()
-	if svc == nil {
-		ctx.ServerError("GetService", nil)
-		return
+
+	if u, err := user_model.GetUserByID(ctx, submission.UserID); err == nil {
+		ctx.Data["Student"] = u
+	} else {
+		log.Error("review: load student %d: %v", submission.UserID, err)
 	}
 
-	assignment, err := svc.GetAssignmentByID(ctx, assignmentID)
-	if err != nil {
-		ctx.ServerError("GetAssignmentByID", err)
-		return
-	}
-	if assignment == nil {
-		ctx.NotFound("Assignment not found", nil)
-		return
-	}
-
-	// TODO: repo-based permission check
-	if !isEduInstructor(ctx) {
-		ctx.Error(http.StatusForbidden, "Only instructors can grade")
-		return
-	}
-
-	// Verify submission belongs to this assignment
-	submissions, err := svc.GetSubmissions(ctx, assignmentID)
-	if err != nil {
-		ctx.ServerError("GetSubmissions", err)
-		return
-	}
-	found := false
-	for _, s := range submissions {
-		if s.ID == subID {
-			found = true
-			break
+	if submission.GradedByID > 0 {
+		if g, err := user_model.GetUserByID(ctx, submission.GradedByID); err == nil {
+			ctx.Data["Grader"] = g
 		}
 	}
-	if !found {
-		ctx.NotFound("Submission not found for this assignment", nil)
-		return
+
+	if assignment.CourseID > 0 {
+		if course, err := svc.GetCourseByID(ctx, assignment.CourseID); err == nil && course != nil {
+			ctx.Data["Course"] = course
+			repo := edu.NewRepository()
+			enrollment, _ := repo.GetEnrollmentByCourseUser(ctx, assignment.CourseID, submission.UserID)
+			if enrollment != nil && enrollment.StudentForkRepoID > 0 && course.OrgID > 0 {
+				forkRepo, _ := repo_model.GetRepositoryByID(ctx, enrollment.StudentForkRepoID)
+				orgUser, _ := user_model.GetUserByID(ctx, course.OrgID)
+				if forkRepo != nil && orgUser != nil {
+					ctx.Data["ForkLink"] = orgUser.Name + "/" + forkRepo.Name + "/src/branch/" + submission.BranchName
+				}
+			}
+		}
 	}
 
+	if results, err := svc.GetTestResults(ctx, submission.ID); err == nil {
+		ctx.Data["TestResults"] = results
+	}
+
+	if submission.PullRequestID != 0 {
+		pr, err := edu.NewForgejoAdapter().GetPullRequest(ctx, submission.PullRequestID)
+		if err != nil {
+			log.Error("review: load PR %d: %v", submission.PullRequestID, err)
+		} else if pr != nil {
+			ctx.Data["PullRequest"] = pr
+			if pr.BaseRepo != nil && pr.Issue != nil {
+				ctx.Data["PullRequestURL"] = setting.AppSubURL + "/" +
+					pr.BaseRepo.OwnerName + "/" + pr.BaseRepo.Name +
+					"/pulls/" + intToString(pr.Issue.Index)
+			}
+		}
+		if files, err := edu.NewForgejoAdapter().GetPullRequestChangedFiles(ctx, submission.PullRequestID); err == nil {
+			ctx.Data["ChangedFiles"] = files
+		} else {
+			log.Error("review: changed files for PR %d: %v", submission.PullRequestID, err)
+		}
+		if comments, err := edu.NewForgejoAdapter().GetPullRequestComments(ctx, submission.PullRequestID); err == nil {
+			ctx.Data["Comments"] = comments
+		} else {
+			log.Error("review: comments for PR %d: %v", submission.PullRequestID, err)
+		}
+	}
+
+	setEduNavContext(ctx)
+	ctx.HTML(http.StatusOK, tplSubmissionReview)
+}
+
+// ApproveSubmissionPost records the TA's approval (grade + comment), flips
+// status to approved.
+func ApproveSubmissionPost(ctx *context.Context) {
+	_, _, ok := loadReviewSubject(ctx)
+	if !ok {
+		return
+	}
+	subID := ctx.ParamsInt64(":subID")
 	grade := int(ctx.FormInt64("grade"))
 	comment := ctx.FormString("comment")
 
 	if grade < 0 || grade > 100 {
-		ctx.Flash.Error("Grade must be between 0 and 100")
-		ctx.Redirect(setting.AppSubURL + "/edu/teacher/assignments/" + ctx.Params(":id") + "/submissions/" + ctx.Params(":subID"))
+		ctx.Flash.Error(ctx.Tr("edu.review.grade") + ": 0..100")
+		ctx.Redirect(reviewURL(ctx))
 		return
 	}
 	if len(comment) > 10000 {
 		ctx.Flash.Error(ctx.Tr("edu.comment_too_long"))
-		ctx.Redirect(setting.AppSubURL + "/edu/teacher/assignments/" + ctx.Params(":id") + "/submissions/" + ctx.Params(":subID"))
+		ctx.Redirect(reviewURL(ctx))
 		return
 	}
 
-	if err := svc.GradeSubmission(ctx, subID, grade, comment, ctx.Doer.ID); err != nil {
-		ctx.ServerError("GradeSubmission", err)
+	if err := edu.GetService().ApproveSubmission(ctx, subID, grade, comment, ctx.Doer.ID); err != nil {
+		ctx.ServerError("ApproveSubmission", err)
 		return
 	}
-
-	ctx.Flash.Success("Grade saved successfully")
-	ctx.Redirect(setting.AppSubURL + "/edu/teacher/assignments/" + ctx.Params(":id") + "/submissions")
+	ctx.Flash.Success(ctx.Tr("edu.review.approve_success"))
+	ctx.Redirect(reviewURL(ctx))
 }
 
-func ResetGradePost(ctx *context.Context) {
-	assignmentID := ctx.ParamsInt64(":id")
-	subID := ctx.ParamsInt64(":subID")
+// MergeSubmissionPost merges the submission's PR via eduadmin and flips
+// status to merged. Pre-conditions are enforced by the service layer.
+func MergeSubmissionPost(ctx *context.Context) {
+	_, submission, ok := loadReviewSubject(ctx)
+	if !ok {
+		return
+	}
+	if submission.PullRequestID == 0 {
+		ctx.Flash.Error(ctx.Tr("edu.review.no_pr_to_merge"))
+		ctx.Redirect(reviewURL(ctx))
+		return
+	}
+	if submission.Status != edu.StatusSubmissionApproved {
+		ctx.Flash.Error(ctx.Tr("edu.review.must_be_approved_to_merge"))
+		ctx.Redirect(reviewURL(ctx))
+		return
+	}
+	if err := edu.GetService().MergeSubmission(ctx, submission.ID); err != nil {
+		log.Error("merge submission %d: %v", submission.ID, err)
+		ctx.Flash.Error(err.Error())
+		ctx.Redirect(reviewURL(ctx))
+		return
+	}
+	ctx.Flash.Success(ctx.Tr("edu.review.merge_success"))
+	ctx.Redirect(submissionsURL(ctx))
+}
 
-	svc := edu.GetService()
-	if svc == nil {
-		ctx.ServerError("GetService", nil)
+// CommentSubmissionPost adds a TA comment in the PR issue thread on behalf
+// of the calling user.
+func CommentSubmissionPost(ctx *context.Context) {
+	_, submission, ok := loadReviewSubject(ctx)
+	if !ok {
 		return
 	}
+	if submission.PullRequestID == 0 {
+		ctx.Flash.Error(ctx.Tr("edu.review.no_pr_to_comment"))
+		ctx.Redirect(reviewURL(ctx))
+		return
+	}
+	body := strings.TrimSpace(ctx.FormString("body"))
+	if body == "" {
+		ctx.Flash.Error(ctx.Tr("edu.review.empty_comment"))
+		ctx.Redirect(reviewURL(ctx))
+		return
+	}
+	if err := edu.GetService().AddSubmissionComment(ctx, submission.ID, body, ctx.Doer); err != nil {
+		log.Error("add submission comment %d: %v", submission.ID, err)
+		ctx.Flash.Error(err.Error())
+		ctx.Redirect(reviewURL(ctx))
+		return
+	}
+	ctx.Flash.Success(ctx.Tr("edu.review.comment_added"))
+	ctx.Redirect(reviewURL(ctx))
+}
 
-	assignment, err := svc.GetAssignmentByID(ctx, assignmentID)
-	if err != nil {
-		ctx.ServerError("GetAssignmentByID", err)
+// ResetApprovalPost reverts status from approved back to done.
+func ResetApprovalPost(ctx *context.Context) {
+	_, submission, ok := loadReviewSubject(ctx)
+	if !ok {
 		return
 	}
-	if assignment == nil {
-		ctx.NotFound("Assignment not found", nil)
+	if submission.Status != edu.StatusSubmissionApproved {
+		ctx.Flash.Error(ctx.Tr("edu.review.must_be_approved_to_reset"))
+		ctx.Redirect(reviewURL(ctx))
 		return
 	}
+	if err := edu.GetService().ResetApproval(ctx, submission.ID); err != nil {
+		ctx.ServerError("ResetApproval", err)
+		return
+	}
+	ctx.Flash.Success(ctx.Tr("edu.review.reset_approval_success"))
+	ctx.Redirect(reviewURL(ctx))
+}
 
-	// TODO: repo-based permission check
-	if !isEduInstructor(ctx) {
-		ctx.Error(http.StatusForbidden, "Only instructors can reset grades")
-		return
+// intToString avoids importing strconv just for one int64 conversion.
+func intToString(i int64) string {
+	if i == 0 {
+		return "0"
 	}
-
-	// Verify submission belongs to this assignment
-	submissions, err := svc.GetSubmissions(ctx, assignmentID)
-	if err != nil {
-		ctx.ServerError("GetSubmissions", err)
-		return
+	negative := i < 0
+	if negative {
+		i = -i
 	}
-	found := false
-	for _, s := range submissions {
-		if s.ID == subID {
-			found = true
-			break
-		}
+	var buf [20]byte
+	pos := len(buf)
+	for i > 0 {
+		pos--
+		buf[pos] = byte('0' + i%10)
+		i /= 10
 	}
-	if !found {
-		ctx.NotFound("Submission not found", nil)
-		return
+	if negative {
+		pos--
+		buf[pos] = '-'
 	}
-
-	if err := svc.ResetToAutoGrade(ctx, subID); err != nil {
-		ctx.ServerError("ResetToAutoGrade", err)
-		return
-	}
-
-	ctx.Flash.Success(ctx.Tr("edu.grade_reset_success"))
-	ctx.Redirect(setting.AppSubURL + "/edu/teacher/assignments/" + ctx.Params(":id") + "/submissions/" + ctx.Params(":subID"))
+	return string(buf[pos:])
 }
