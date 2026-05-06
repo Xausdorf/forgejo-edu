@@ -210,206 +210,174 @@ failed   → constraint check / тесты упали
 
 ### 2.5 Ключевые сценарии
 
-![Диаграмма вариантов использования](use-case-diagram.png)
-
 #### А. Управление курсами
 
-Файлы: `routers/web/edu/courses.go`, `templates/edu/course_list.tmpl`, `course_detail.tmpl`, `course_form.tmpl`
+`POST /edu/teacher/courses/new` — handler `NewCoursePost`:
+1. Валидация формы: `Name` (≤255), `Description`, `OrgID` (опц., dropdown орг, в которых юзер может создавать репо), `TasksMasterRepoID` (опц., dropdown репо в выбранной org), `StartUnix`/`EndUnix`.
+2. `service.CreateCourse(...)` пишет `Course` + auto-зачисляет создателя как teacher через `EnrollUser(role=teacher)`. Если `OrgID` есть, добавляет его в команду `edu-course-{id}-teachers`.
+3. Redirect на `/edu/teacher/courses/{id}`.
 
-1. Преподаватель заходит на `/edu/teacher/courses` — видит список своих курсов.
-2. Создаёт курс через `/edu/teacher/courses/new` (название, описание, даты).
-3. На странице курса (`/edu/teacher/courses/{id}`) видит список участников и может:
-   - Добавить студента вручную (по username)
-   - Импортировать студентов из CSV
-   - Удалить участника
-4. Курс привязывается к заданиям — задание всегда принадлежит курсу.
+Удаление (`POST /{id}/delete`) каскадно удаляет 10 наборов данных в одной `db.WithTx`-транзакции: assignments, submissions, test_results, init_forks_task, distribute_tasks, course_sync_tasks + course_sync_pr, import_drafts + import_draft_rows, enrollments. Форки студентов остаются в org.
 
 #### Б. CSV-импорт студентов
 
-![Диаграмма последовательности: CSV-импорт](seq-diagram-students-csv-import.png)
-
-Файлы: `routers/web/edu/import.go`, `internal/edu/csv_import.go`, `internal/edu/translit.go`, `service_import.go`
-
-Трёхшаговый процесс:
-
-1. **Upload**: Преподаватель загружает CSV (поддерживает UTF-8, Windows-1251, BOM, запятая и точка с запятой как разделитель).
-2. **Preview**: Система парсит CSV, транслитерирует ФИО в username (`Иванов Иван` → `ivanov-i`), показывает таблицу для редактирования (можно исправить username/email).
-3. **Execute**: Система создаёт пользователей (с автогенерацией пароля), записывает их в курс. Показывает таблицу с логинами и паролями для раздачи.
-
-Если пользователь уже существует — просто записывается в курс без создания нового.
+`POST /edu/teacher/courses/{id}/import` (3-этапный flow):
+1. **Upload**: `service.UploadCSV(courseID, file, mapping)` парсит CSV (BOM, UTF-8/Win-1251, `,`/`;`, транслитерация ГОСТ 7.79-2000), создаёт `ImportDraft` + `ImportDraftRow` на каждую строку. `mapping.GroupCol` — индекс колонки группы (преподаватель указывает в форме upload).
+2. **Preview** (`/import/{draftID}/preview`): таблица; редактирование через `/update-row` (`username`, `email`, `role`, `group_name`).
+3. **Execute** (`/import/{draftID}/execute`): для каждой строки:
+   - Если пользователь не существует → создать через `adapter.CreateUser(...)` (генерация пароля, `must_change_password=false`).
+   - `service.EnrollUser(courseID, userID, role, GroupName=row.Group)`.
+   - Если у курса `OrgID` — добавить в команду по роли.
 
 #### В. Создание задания
 
-Файлы: `routers/web/edu/assignments.go`, `templates/edu/assignment_new.tmpl`
+Задание привязано к курсу 1:1 через `(CourseID, TaskName)` UNIQUE. Самого «репо задания» нет — папка `tasks/<TaskName>/` живёт внутри `Course.TasksMasterRepoID`.
 
-1. Преподаватель создаёт обычный репозиторий-шаблон в Forgejo.
-2. Заходит на `/edu/teacher/assignments/new`, выбирает курс и репозиторий, заполняет название, описание, дедлайн.
-3. Запись создаётся в `edu_assignments` с привязкой к `course_id` и `repo_id`.
+`POST /edu/teacher/assignments/new` — handler `NewAssignmentPost`:
+1. Валидация: `course_id` (required), `task_name` (regex `^[a-z0-9_-]+$`, ≤100), `title` (≤255), `allowed_files_glob` (required, ≤500), `deadline_unix`.
+2. Проверка существования ветки: handler через адаптер вызывает `git.GetBranch(tasks-master, "submits/<TaskName>")`. Если ветки нет — flash error «Branch submits/<task_name> not found in tasks-master», форма не сохраняется.
+3. `service.CreateAssignment(...)` пишет `Assignment` (без `RepoID`).
 
-**Техническая реализация**: Хелпер `loadCoursesAndRepos()` в `assignments.go` загружает курсы и определяет, какие репозитории показать. Если курс привязан к организации, отображаются репозитории организации. Если у организации нет репозиториев, список остаётся пустым (нет fallback на собственные репозитории пользователя). Если курс без организации — показываются собственные репозитории пользователя. JavaScript на клиенте при смене курса делает redirect с `?course_id=X`, чтобы сервер подгрузил правильные репозитории.
+#### Г. Init forks (инициализация студенческих форков на уровне курса)
 
-#### Г. Студент берёт задание (Join)
+Заменяет старый «bulk fork на каждое задание». Один раз на курс — после CSV-импорта или ручного зачисления.
 
-![Диаграмма последовательности: Студент берёт задание](seq-diagram-student-assignment.png)
+`POST /edu/teacher/courses/{id}/init-forks` — handler `InitForksPost`:
+1. Валидация: курс активен, есть `TasksMasterRepoID`, есть незачисленные.
+2. `service.StartInitForks(courseID)` создаёт `InitForksTask{Status=pending}`.
+3. `go graceful.GetManager().RunWithShutdownContext(...)` — фоновая горутина:
+   - Для каждой `Enrollment` без `StudentForkRepoID`:
+     - `adapter.ForkRepository(student, tasksMasterRepo, name="<username>-tasks", target=Course.OrgID)` → `studentRepo`.
+     - `adapter.AddCollaborator(studentRepo, student, accessMode=Write)`.
+     - `adapter.ProtectMainBranch(studentRepo)` — `enable_push=false`, merge только команде teachers.
+     - `repo.UpdateEnrollmentStudentForkRepoID(enrollmentID, studentRepo.ID)`.
+     - Инкремент `task.Completed` (или `Failed` + добавить в `ErrorLog`).
+   - В конце: `task.Status = done`.
+4. Handler сразу redirect-ит на страницу курса.
 
-Файлы: `routers/web/edu/assignments.go` → `JoinAssignment`, `internal/edu/service_join.go`
+Frontend опрашивает `/init-forks-status` (JSON: `{total, completed, failed, status}`).
 
-1. Студент видит список своих заданий на `/edu/student/assignments` (только по курсам, в которых он записан).
-2. Нажимает "Start Assignment" на `/edu/student/assignments/{id}`.
-3. Сервис вызывает `RepoForker.ForkRepositoryAndUpdates` — создаёт форк шаблона в namespace студента.
-4. Создаётся запись `Submission` со статусом `started` и ссылкой на форк.
-5. Студент перенаправляется на страницу задания, где видит ссылку на свой репозиторий.
+#### Д. Distribute (раздача задания)
 
-#### Д. Массовый форк (Bulk Fork)
+Заменяет старый «bulk fork на ассайнмент».
 
-![Диаграмма последовательности: Асинхронный массовый форк](seq-diagram-bulk-fork.png)
+`POST /edu/teacher/assignments/{id}/distribute` — handler `DistributePost`:
+1. Валидация: `submits/<TaskName>` существует в `tasks-master`; курс активен.
+2. `service.StartDistribute(assignmentID)` создаёт `DistributeTask{Status=pending}`.
+3. Goroutine: для каждой `Enrollment` курса со `StudentForkRepoID`:
+   - `git.Push(tasksMasterRepo, studentForkRepo, "submits/<TaskName>:submits/<TaskName>")` через `InternalPushingEnvironment`.
+   - `service.UpsertSubmission(EnrollmentID, AssignmentID, BranchName="submits/<TaskName>", Status=pending)`.
+   - Инкремент `task.Pushed`/`task.Failed`.
 
-Файлы: `routers/web/edu/bulk_fork.go`, `internal/edu/service_bulk_fork.go`
+Frontend опрашивает `/distribute-status`.
 
-1. На странице submissions преподаватель нажимает "Fork for All Students".
-2. Система создаёт задачу `BulkForkTask` со статусом `pending` и запускает фоновую горутину через `graceful.GetManager().RunWithShutdownContext()`.
-3. HTTP-запрос сразу возвращает redirect — страница не блокируется.
-4. Горутина для каждого студента:
-   - Проверяет, нет ли уже submission.
-   - Создаёт форк шаблона → создаёт submission.
-   - Обновляет прогресс в БД (completed/failed/total).
-5. Фронтенд опрашивает `/bulk-fork-status` (JSON) для отображения прогресса.
+#### Е. CI/CD: путь от push студента до PR
 
-#### Е. Синхронизация форков (Sync Forks)
-
-Файлы: `routers/web/edu/sync_fork.go`, `internal/edu/service_sync_fork.go`, `adapter.go`
-
-1. Преподаватель обновляет шаблон-репозиторий (добавляет тесты, README и т.д.).
-2. Нажимает "Sync All Forks" на странице submissions.
-3. Система создаёт задачу `SyncForkTask` со статусом `pending` и запускает фоновую горутину через `graceful.GetManager().RunWithShutdownContext()`.
-4. HTTP-запрос сразу возвращает redirect — страница не блокируется.
-5. Горутина для каждого форка студента выполняет `git push` из шаблона в форк, обновляя прогресс в БД.
-6. Фронтенд опрашивает `/sync-fork-status` (JSON) для отображения прогресса.
-
-**Ключевое решение**: используется `InternalPushingEnvironment` из `modules/repository/env.go`, что устанавливает переменную `GITEA_INTERNAL_PUSH=true`. Это приводит к тому, что git-хуки Forgejo пропускают проверку branch protection. Без этого `push` в чужой форк блокировался бы защитой веток.
-
-```go
-// adapter.go — ключевой фрагмент
-func (a *ForgejoAdapter) SyncFork(ctx context.Context, doer *user_model.User, forkRepo *repo_model.Repository, branch string) error {
-    return git.Push(ctx, forkRepo.BaseRepo.RepoPath(), git.PushOptions{
-        Remote: forkRepo.RepoPath(),
-        Branch: fmt.Sprintf("%s:%s", branch, branch),
-        Env:    repo_module.InternalPushingEnvironment(doer, forkRepo),
-    })
-}
-```
-
-#### Ж. CI/CD интеграция (автоматическое тестирование)
-
-![Диаграмма последовательности: Push → CI/CD → Результат](seq-diagram-student-submission.png)
-
-Файл: `internal/edu/notifier.go`
-
-1. `EduNotifier` регистрируется через `notify.RegisterNotifier` в `Init()` (не в `NewService()`).
-2. Когда Forgejo Actions runner завершает workflow, срабатывает `ActionRunNowDone`.
-3. Наш нотификатор:
-   - Ищет submission по `run.RepoID` (это форк студента).
-   - Если нашёл — обновляет статус: `Success` → `passed`, `Failure` → `failed`.
-   - Парсит оценку из логов CI (см. ниже) и создаёт запись `TestResult` с `CommitSHA`, `Score` и описанием.
-
-#### Ж.1. Автоматическое выставление оценки из CI-логов
-
-Файлы: `internal/edu/notifier.go`, `internal/edu/grade_parser.go`
-
-Workflow может вывести оценку в лог командой вида `::edu-grade::XX`, где `XX` — целое число от 0 до 100. Нотификатор разбирает эту команду и записывает оценку в `TestResult.Score`, а затем (если `submission.ManualGrade == false`) — в `submission.Grade`.
-
-**Формат команды:**
-
-```
-::edu-grade::85
-```
-
-**Пример workflow:**
+Workflow в `tasks-master` (`.forgejo/workflows/grade.yml`) запускается на push в `refs/heads/submits/**`. Рекомендуемый шаблон (см. `test-kit/template-tasks-master/`):
 
 ```yaml
-- name: Run tests and grade
-  run: |
-    PASS=$(go test ./... 2>&1 | grep -c PASS || true)
-    TOTAL=10
-    SCORE=$(( PASS * 100 / TOTAL ))
-    echo "::edu-grade::${SCORE}"
+on:
+  push:
+    branches: ['submits/**']
+jobs:
+  grade:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Constraint check (по конвенции)
+        run: |
+          TASK=${GITHUB_REF#refs/heads/submits/}
+          DIFF=$(git diff --name-only main...HEAD | grep -v "^tasks/$TASK/" || true)
+          if [ -n "$DIFF" ]; then echo "Forbidden files: $DIFF"; exit 1; fi
+      - name: Lint / Build / Test
+        run: |
+          # ... студенческий код ...
+      - name: Grade marker
+        if: success()
+        run: echo "::edu-grade::100"
 ```
 
-**Алгоритм парсинга (`ParseGradeFromLogLines` в `grade_parser.go`):**
+Server-side `notifier.go` подписан на `ActionRunNowDone`. На завершение:
+1. **Идентификация**: по `repo_id` найти `Enrollment(StudentForkRepoID=repo.ID)`. По имени ветки — `TaskName`. Найти `Assignment(CourseID, TaskName)`.
+2. **Авторитетный constraint check**: через `services/gitdiff.GetDiffShortStat` или `git.GetDiffForFile` сравнить ветку с `main` форка, отфильтровать по `Assignment.AllowedFilesGlob`. Нарушение → `Submission.Status=failed`, системный комментарий в PR (если PR уже есть).
+3. **Парсинг `::edu-grade::`**: `actions.ReadLogs(jobs)` + `ParseGradeFromLogLines(...)`. Записать `Submission.Grade` только если `ManualGrade=false`.
+4. **Auto-PR**: если `Submission.PullRequestID == 0` → `services/pull.NewPullRequest`:
+   - `head = submits/<TaskName>`, `base = main`, `repo = enrollment.StudentForkRepoID`.
+   - Title = `"[<GroupName>] Submit: <TaskName>"` (без префикса, если `GroupName==""`). Хелпер `formatSubmissionPRTitle(taskName, groupName)`.
+   - Body = `"Auto-submit for task '<TaskName>' in course <CourseName>."`.
+   - Сохранить `pr.ID` в `Submission.PullRequestID`.
+5. **Создать TestResult**.
+6. **Обновить Status**: `running` → `done` (зелёный CI) | `failed` (красный или constraint).
 
-- Регулярное выражение: `::edu-grade::(\d{1,3})`
-- Разбираются все строки логов всех jobs и tasks workflow через `actions.ReadLogs`.
-- Побеждает **последнее** вхождение команды.
-- Значение валидируется в диапазоне 0–100; невалидные значения игнорируются.
-- Если команда `::edu-grade::` не найдена в логах — применяется **бинарная оценка**: 100 при успехе workflow, 0 при неудаче (поведение до введения фичи).
+#### Ж. Submission review (Approve → Merge через edu-UI)
 
-**Поле `ManualGrade` на `Submission`:**
+`GET /edu/teacher/assignments/{id}/submissions/{subID}` — handler `SubmissionReview`:
+- Загружает `Submission`, `Enrollment`, `Assignment`, `Course`, PR (если есть).
+- Через `services/gitdiff` получает diff `head=submits/<TaskName>` vs `base=main` форка.
+- Через прямой Xorm к `models/issues` — все комментарии PR.
+- Шаблон `submission_review.tmpl` инклюдит `templates/repo/diff/...` и `templates/repo/issue/view_content/comments.tmpl` partial-ы (внутри edu-навигации).
 
-- `ManualGrade bool` (DEFAULT `false`) — флаг, что преподаватель вручную выставил оценку.
-- Если `ManualGrade == true`, нотификатор **не перезаписывает** `submission.Grade` результатом CI.
-- При сохранении оценки через форму (`POST .../grade`) сервис устанавливает `ManualGrade = true`.
+`POST .../approve` (`ApproveSubmissionPost`): валидация `grade` ∈ [0,100], `comment` (≤10 000); `Submission.Status=approved`, `ManualGrade=true`, `Grade=...`.
 
-**Сброс на автоматическую оценку (`ResetToAutoGrade`):**
+`POST .../merge` (`MergeSubmissionPost`): только если `Status=approved`. `services/pull.Merge` от имени `eduadmin`. `Status=merged`.
 
-- Сервисный метод `ResetToAutoGrade` устанавливает `ManualGrade = false` и восстанавливает `Grade` из последнего `TestResult.Score`.
-- Роут: `POST /edu/teacher/assignments/{id}/submissions/{subID}/reset-grade`.
-- На странице детали submission отображается кнопка **"Reset to auto-grade"**, которая вызывает этот роут.
+`POST .../comment`: `services/issue/comments.CreateIssueComment` от TA.
 
-#### З. Ручное оценивание (Grading)
+`POST .../reset-approval`: `Status=approved` → `done`, `ManualGrade=false`.
 
-Файлы: `routers/web/edu/grading.go`, `internal/edu/service_grading.go`, `templates/edu/submission_detail.tmpl`
+#### З. Course sync (PR-based синхронизация шаблона в форки)
 
-1. На странице submissions (`/edu/teacher/assignments/{id}/submissions`) преподаватель видит таблицу со столбцами: Student, Status, CI Score, Grade, Repo, Updated, Detail.
-2. Нажимает "Detail" → переходит на `/edu/teacher/assignments/{id}/submissions/{subID}`.
-3. Видит: информацию о студенте, историю CI-прогонов (таблица TestResult), форму оценивания.
-4. Вводит оценку (0–100) и комментарий, нажимает "Save Grade".
-5. Оценка сохраняется в полях `grade`, `comment`, `graded_by_id`, `graded_unix` таблицы submissions, флаг `manual_grade` устанавливается в `true`.
+Заменяет старый «sync forks» (прямой push в `main`).
 
-Студент видит свою оценку на странице задания (`/edu/student/assignments/{id}`), а также последний результат CI.
+`GET /edu/teacher/courses/{id}/sync` — страница со списком прошлых run-ов и кнопкой «Запустить».
 
-#### И. Административная панель
+`POST /edu/teacher/courses/{id}/sync/start` — handler `StartCourseSyncPost`:
+1. Создать `CourseSyncTask{Status=pending}`.
+2. Goroutine: для каждой `Enrollment` со `StudentForkRepoID`:
+   - `git.Push(tasksMaster, fork, "main:course-sync")` через `InternalPushingEnvironment`.
+   - `services/pull.NewPullRequest(head="course-sync", base="main", repo=fork)`.
+   - Попытка `services/pull.Merge` (стратегия по умолчанию).
+   - Запись `CourseSyncPR{SyncTaskID, EnrollmentID, PullRequestID, Status}`:
+     - `merged` если auto-merge получился.
+     - `conflict` если merge отказал по конфликту.
+     - `failed` если push/PR-create вообще упали.
 
-Файлы: `routers/web/edu/admin.go`, `templates/edu/admin_panel.tmpl`
+`GET /edu/teacher/courses/{id}/sync/status` — JSON прогресса.
 
-- `/edu/admin` — управление глобальными ролями пользователей (student/teacher/admin).
-- Роли определяют, какие разделы видит пользователь (student vs teacher dashboards).
+`POST /edu/teacher/courses/{id}/sync/{taskID}/merge-all` — merge всех `Status=conflict?` нет — pending/non-conflict-PR-ов скопом.
 
-#### К. Маппинг ролей на организацию Forgejo
+`POST /edu/teacher/courses/{id}/sync/{taskID}/merge/{prID}` — merge одного PR (TA вручную после ресолва конфликта).
 
-Файлы: `internal/edu/adapter.go`, `internal/edu/service_courses.go`
+Страница course-sync поддерживает фильтр `?group=<GroupName>` (мульти-выбор).
 
-При записи пользователя в курс, привязанный к организации Forgejo (`OrgID > 0`), система автоматически:
+#### И. Auto-grade vs ManualGrade
 
-1. Создаёт (или находит) команду в организации:
-   - `edu-course-{id}-students` с правами `Write` (для студентов)
-   - `edu-course-{id}-teachers` с правами `Admin` (для преподавателей)
-2. Добавляет пользователя в соответствующую команду.
-3. Команды создаются с `IncludesAllRepositories: true` — доступ ко всем репозиториям организации.
+CI пишет `::edu-grade::XX` → notifier пишет `Submission.Grade` **только если `ManualGrade=false`**. На стадии `approved` (TA нажал Approve) `ManualGrade` ставится в `true` — последующие CI-прогоны (например, после merge с `course-sync`) грейд больше не перетирают. `Reset Approval` обнуляет `ManualGrade` обратно в `false`.
 
-При отчислении пользователь удаляется из обеих команд. Операция идемпотентна (повторная запись не вызывает ошибок).
+#### К. Маппинг ролей на org
 
-Интерфейс `OrgManager` в `service.go` абстрагирует эти операции. `ForgejoAdapter` реализует его через `models.NewTeam`, `models.AddTeamMember`, `models.RemoveTeamMember`.
+| Edu роль | Org Team | `IncludesAllRepositories` | Repos | AccessMode | + collaborator |
+|---|---|---|---|---|---|
+| `student` | `edu-course-{id}-students` | false | только `tasks-master` | Read | Write на свой `<username>-tasks` |
+| `ta` | `edu-course-{id}-ta` | true | вся org | Read | — |
+| `teacher` / `admin` | `edu-course-{id}-teachers` | true | вся org | Admin | — |
+
+При unenroll: убираем из team + убираем collaborator-запись. Сам fork в org остаётся (orphaned).
 
 #### Л. Каскадное удаление курса
 
-Файл: `internal/edu/repository_courses.go`
+`repository_courses.go::DeleteCourse(courseID)` в `db.WithTx`:
+1. `course_sync_pr` → 2. `course_sync_task` → 3. `distribute_task` → 4. `init_forks_task` → 5. `test_results` → 6. `submissions` → 7. `assignments` → 8. `import_draft_row` → 9. `import_draft` → 10. `course_enrollments` → 11. `courses`.
 
-Удаление курса выполняется в одной транзакции (`db.WithTx`) и каскадно удаляет:
-1. Для каждого задания курса: `TestResult` → `Submission` → `BulkForkTask` → `SyncForkTask`
-2. `Assignment` (все задания курса)
-3. `ImportDraftRow` → `ImportDraft` (черновики импорта)
-4. `CourseEnrollment` (записи студентов)
-5. Сам `Course`
-
-Порядок удаления — от "листьев" к "корню", чтобы не оставлять orphaned записей.
+Форки студентов в org **не удаляются** автоматически — преподаватель может зачистить руками через GUI Forgejo при необходимости.
 
 #### М. Ограничение доступа по активности курса
 
-Файлы: `internal/edu/repository_ext.go`, `internal/edu/service_join.go`, `routers/web/edu/assignments.go`
-
-- `GetAssignmentsForUser` фильтрует по `edu_courses.end_unix = 0 OR end_unix > now()` — студент не видит задания из завершённых курсов.
-- `JoinAssignment` проверяет `course.IsActive()` — нельзя взять задание из завершённого курса.
-- `AssignmentDetail` проверяет enrollment — студент не может просматривать задания из курсов, в которых не записан.
+`course.IsActive()` (= `EndUnix == 0 || EndUnix > now()`) проверяется в:
+- `GetAssignmentsForUser` (студенческий список) — SQL `WHERE end_unix = 0 OR end_unix > now()`.
+- `StartInitForks`, `StartDistribute`, `StartCourseSync` — отказывают по неактивному курсу.
+- Student assignment detail handler — flash error + редирект.
 
 ### 2.6 Полная карта роутов
 
