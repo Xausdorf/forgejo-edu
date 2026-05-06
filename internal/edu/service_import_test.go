@@ -96,10 +96,25 @@ func TestUpdateDraftRow(t *testing.T) {
 	svc := NewService(mockRepo, mockForker)
 
 	mockRepo.On("UpdateImportDraftRow", mock.Anything, mock.MatchedBy(func(row *ImportDraftRow) bool {
-		return row.ID == 5 && row.Username == "new-user" && row.Email == "new@test.com" && row.Status == "pending"
+		return row.ID == 5 && row.Username == "new-user" && row.Email == "new@test.com" && row.Group == "" && row.Status == "pending"
 	})).Return(nil)
 
-	err := svc.UpdateDraftRow(context.Background(), 5, "new-user", "new@test.com")
+	err := svc.UpdateDraftRow(context.Background(), 5, "new-user", "new@test.com", "")
+	assert.NoError(t, err)
+
+	mockRepo.AssertExpectations(t)
+}
+
+func TestUpdateDraftRow_WithGroup(t *testing.T) {
+	mockRepo := new(MockRepository)
+	mockForker := new(MockRepoForker)
+	svc := NewService(mockRepo, mockForker)
+
+	mockRepo.On("UpdateImportDraftRow", mock.Anything, mock.MatchedBy(func(row *ImportDraftRow) bool {
+		return row.ID == 5 && row.Username == "new-user" && row.Email == "new@test.com" && row.Group == "SE-241" && row.Status == "pending"
+	})).Return(nil)
+
+	err := svc.UpdateDraftRow(context.Background(), 5, "new-user", "new@test.com", "SE-241")
 	assert.NoError(t, err)
 
 	mockRepo.AssertExpectations(t)
