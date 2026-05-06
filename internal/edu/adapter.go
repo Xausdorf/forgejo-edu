@@ -103,6 +103,20 @@ func (a *ForgejoAdapter) SyncFork(ctx context.Context, doer *user_model.User, fo
 	})
 }
 
+// Force-push: dstBranch is server-managed; any divergent commits on it are
+// intentionally overwritten.
+func (a *ForgejoAdapter) PushBranchToFork(ctx context.Context, doer *user_model.User, forkRepo *repo_model.Repository, srcBranch, dstBranch string) error {
+	if err := forkRepo.GetBaseRepo(ctx); err != nil {
+		return fmt.Errorf("get base repo: %w", err)
+	}
+	return git.Push(ctx, forkRepo.BaseRepo.RepoPath(), git.PushOptions{
+		Remote: forkRepo.RepoPath(),
+		Branch: fmt.Sprintf("+%s:%s", srcBranch, dstBranch),
+		Env:    repo_module.InternalPushingEnvironment(doer, forkRepo),
+		Force:  true,
+	})
+}
+
 // GetDefaultBranch returns the default branch name for a repository.
 func (a *ForgejoAdapter) GetDefaultBranch(ctx context.Context, repoID int64) (string, error) {
 	repo, err := repo_model.GetRepositoryByID(ctx, repoID)

@@ -1,0 +1,168 @@
+{{template "base/head" .}}
+<div role="main" aria-label="{{.Title}}" class="page-content edu course-sync">
+	<div class="ui container">
+		{{template "edu/navbar" .}}
+		{{template "base/alert" .}}
+
+		<h1 class="ui header">
+			{{svg "octicon-sync" 28}}
+			{{ctx.Locale.Tr "edu.sync.title"}} — {{.Course.Name}}
+		</h1>
+		<p>{{ctx.Locale.Tr "edu.sync.intro"}}</p>
+
+		<div class="ui segment" id="edu-course-sync-block" data-course-id="{{.Course.ID}}">
+			<form action="{{AppSubUrl}}/edu/teacher/courses/{{.Course.ID}}/sync/start" method="post" style="display:inline-block">
+				{{.CsrfTokenHtml}}
+				<button class="ui primary button" type="submit" id="edu-course-sync-button"
+				        onclick="return confirm('{{ctx.Locale.Tr "edu.sync.run_confirm"}}')">
+					{{svg "octicon-play"}} {{ctx.Locale.Tr "edu.sync.run"}}
+				</button>
+			</form>
+			<div id="edu-course-sync-progress" style="margin-top:10px"></div>
+		</div>
+
+		{{if .SyncTask}}
+		<h2 class="ui header">
+			{{svg "octicon-list-unordered"}} {{ctx.Locale.Tr "edu.sync.title"}}
+			<span class="ui mini grey label">#{{.SyncTask.ID}}</span>
+		</h2>
+
+		{{if .SyncPRs}}
+			<form action="{{AppSubUrl}}/edu/teacher/courses/{{.Course.ID}}/sync/{{.SyncTask.ID}}/merge-all"
+			      method="post" style="margin-bottom:12px">
+				{{.CsrfTokenHtml}}
+				<button class="ui small olive button" type="submit"
+				        onclick="return confirm('{{ctx.Locale.Tr "edu.sync.merge_all_confirm"}}')">
+					{{svg "octicon-git-merge"}} {{ctx.Locale.Tr "edu.sync.merge_all"}}
+				</button>
+			</form>
+
+			<table class="ui celled table">
+				<thead>
+					<tr>
+						<th>{{ctx.Locale.Tr "edu.sync.student"}}</th>
+						<th>{{ctx.Locale.Tr "edu.sync.status"}}</th>
+						<th>{{ctx.Locale.Tr "edu.sync.action"}}</th>
+					</tr>
+				</thead>
+				<tbody>
+					{{range .SyncPRs}}
+						<tr>
+							<td>
+								{{with (index $.UserByEnrollment .EnrollmentID)}}{{.Name}}{{else}}—{{end}}
+								{{with (index $.RepoByEnrollment .EnrollmentID)}}
+									{{if $.OrgUser}}
+										<a href="{{AppSubUrl}}/{{$.OrgUser.Name}}/{{.Name}}/src/branch/course-sync"
+										   class="ui mini basic button" style="margin-left: 8px">
+											{{svg "octicon-link-external"}} {{ctx.Locale.Tr "edu.sync.open_fork"}}
+										</a>
+									{{end}}
+								{{end}}
+							</td>
+							<td>
+								{{if eq (printf "%s" .Status) "merged"}}
+									<span class="ui green label">{{ctx.Locale.Tr "edu.sync.status_merged"}}</span>
+								{{else if eq (printf "%s" .Status) "conflict"}}
+									<span class="ui orange label">{{ctx.Locale.Tr "edu.sync.status_conflict"}}</span>
+								{{else if eq (printf "%s" .Status) "failed"}}
+									<span class="ui red label">{{ctx.Locale.Tr "edu.sync.status_failed"}}</span>
+								{{else}}
+									<span class="ui blue label">{{ctx.Locale.Tr "edu.sync.status_pending"}}</span>
+								{{end}}
+								{{if .ErrorMsg}}
+									<div style="font-size:0.85em; color:#888">{{.ErrorMsg}}</div>
+								{{end}}
+							</td>
+							<td>
+								{{if eq (printf "%s" .Status) "pending"}}
+									<form action="{{AppSubUrl}}/edu/teacher/courses/{{$.Course.ID}}/sync/{{$.SyncTask.ID}}/merge/{{.ID}}"
+									      method="post" style="display:inline-block">
+										{{$.CsrfTokenHtml}}
+										<button class="ui mini olive button" type="submit">
+											{{svg "octicon-git-merge"}} {{ctx.Locale.Tr "edu.sync.merge_one"}}
+										</button>
+									</form>
+								{{end}}
+								{{if and .PullRequestID (gt .PullRequestID 0)}}
+									{{with (index $.RepoByEnrollment .EnrollmentID)}}
+										{{if $.OrgUser}}
+											<a class="ui mini basic button"
+											   href="{{AppSubUrl}}/{{$.OrgUser.Name}}/{{.Name}}/pulls">
+												{{svg "octicon-git-pull-request"}} {{ctx.Locale.Tr "edu.sync.open_pr"}}
+											</a>
+										{{end}}
+									{{end}}
+								{{end}}
+							</td>
+						</tr>
+					{{end}}
+				</tbody>
+			</table>
+		{{else}}
+			<p>{{ctx.Locale.Tr "edu.sync.no_prs_yet"}}</p>
+		{{end}}
+		{{else}}
+		<p>{{ctx.Locale.Tr "edu.sync.no_task"}}</p>
+		{{end}}
+	</div>
+</div>
+
+<script>
+	(function() {
+		const block = document.getElementById('edu-course-sync-block');
+		if (!block) return;
+		const courseID = block.dataset.courseId;
+		const progressEl = document.getElementById('edu-course-sync-progress');
+		const buttonEl = document.getElementById('edu-course-sync-button');
+		if (!progressEl) return;
+
+		function render(data) {
+			if (!data || data.status === 'none') {
+				progressEl.innerHTML = '';
+				return;
+			}
+			const synced = data.synced || 0;
+			const skipped = data.skipped || 0;
+			const failed = data.failed || 0;
+			const total = data.total || 0;
+			let cls = 'ui label';
+			let label = data.status;
+			if (data.status === 'running' || data.status === 'pending') {
+				cls = 'ui blue label';
+				label = '{{ctx.Locale.Tr "edu.sync.in_progress"}}';
+				if (buttonEl) buttonEl.disabled = true;
+			} else if (data.status === 'done') {
+				cls = 'ui green label';
+				label = '{{ctx.Locale.Tr "edu.sync.done"}}';
+				if (buttonEl) buttonEl.disabled = false;
+			} else if (data.status === 'error') {
+				cls = 'ui red label';
+				label = '{{ctx.Locale.Tr "edu.sync.error"}}';
+				if (buttonEl) buttonEl.disabled = false;
+			}
+			let html = `<span class="${cls}">${label}</span> `;
+			html += `{{ctx.Locale.Tr "edu.sync.progress"}}: ${synced} / ${total}`;
+			if (skipped > 0) html += ` (conflicts: ${skipped})`;
+			if (failed > 0) html += ` (failed: ${failed})`;
+			if (data.error_log) {
+				const safe = data.error_log.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+				html += `<pre style="margin-top:8px;max-height:200px;overflow:auto;font-size:0.85em">${safe}</pre>`;
+			}
+			progressEl.innerHTML = html;
+		}
+
+		function poll() {
+			fetch(`{{AppSubUrl}}/edu/teacher/courses/${courseID}/sync/status`)
+				.then(r => r.json())
+				.then(data => {
+					render(data);
+					if (data.status === 'running' || data.status === 'pending') {
+						setTimeout(poll, 2000);
+					}
+				})
+				.catch(err => console.error('course-sync-status:', err));
+		}
+		poll();
+	})();
+</script>
+{{template "base/footer" .}}

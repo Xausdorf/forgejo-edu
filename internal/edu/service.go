@@ -68,6 +68,14 @@ type EducationalService interface {
 	GetDistributeTaskByAssignment(ctx context.Context, assignmentID int64) (*DistributeTask, error)
 	GetDistributeTaskByID(ctx context.Context, id int64) (*DistributeTask, error)
 
+	// Course sync (course-level)
+	StartCourseSync(ctx context.Context, courseID, doerID int64) (*CourseSyncTask, error)
+	GetCourseSyncTaskByCourse(ctx context.Context, courseID int64) (*CourseSyncTask, error)
+	GetCourseSyncTaskByID(ctx context.Context, id int64) (*CourseSyncTask, error)
+	ListCourseSyncPRsByTask(ctx context.Context, taskID int64) ([]*CourseSyncPR, error)
+	MergeAllCourseSyncPRs(ctx context.Context, taskID, doerID int64) (mergedCount int, err error)
+	MergeCourseSyncPR(ctx context.Context, syncPRID, doerID int64) error
+
 	EnrollUser(ctx context.Context, opts EnrollUserOptions) error
 	GetEnrollments(ctx context.Context, courseID int64) ([]*CourseEnrollment, error)
 	RemoveEnrollment(ctx context.Context, courseID, userID int64) error
@@ -93,6 +101,7 @@ type RepoForker interface {
 	ForkRepositoryAndUpdates(ctx context.Context, doer, owner *user_model.User, opts ForkRepoOptions) (*repo_model.Repository, error)
 	GetRepositoryByID(ctx context.Context, id int64) (*repo_model.Repository, error)
 	SyncFork(ctx context.Context, doer *user_model.User, forkRepo *repo_model.Repository, branch string) error
+	PushBranchToFork(ctx context.Context, doer *user_model.User, forkRepo *repo_model.Repository, srcBranch, dstBranch string) error
 	GetDefaultBranch(ctx context.Context, repoID int64) (string, error)
 	AddCollaborator(ctx context.Context, repoID, userID int64, mode perm.AccessMode) error
 	RemoveCollaborator(ctx context.Context, repoID, userID int64) error
@@ -126,6 +135,8 @@ type PullRequestService interface {
 	MergePullRequest(ctx context.Context, opts MergePullRequestOptions) error
 	GetPullRequestComments(ctx context.Context, prID int64) ([]*issues_model.Comment, error)
 	GetPullRequest(ctx context.Context, prID int64) (*issues_model.PullRequest, error)
+	GetUnmergedPullRequest(ctx context.Context, headRepoID, baseRepoID int64, headBranch, baseBranch string) (*issues_model.PullRequest, error)
+	IsMergeConflictError(err error) bool
 }
 
 // ActionLogReader abstracts reading of CI run logs. Implemented by

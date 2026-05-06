@@ -440,6 +440,11 @@ func (m *MockRepoForker) SyncFork(ctx context.Context, doer *user_model.User, fo
 	return args.Error(0)
 }
 
+func (m *MockRepoForker) PushBranchToFork(ctx context.Context, doer *user_model.User, forkRepo *repo_model.Repository, srcBranch, dstBranch string) error {
+	args := m.Called(ctx, doer, forkRepo, srcBranch, dstBranch)
+	return args.Error(0)
+}
+
 func (m *MockRepoForker) GetDefaultBranch(ctx context.Context, repoID int64) (string, error) {
 	args := m.Called(ctx, repoID)
 	return args.String(0), args.Error(1)
@@ -552,6 +557,19 @@ func (m *MockPullRequestService) GetPullRequest(ctx context.Context, prID int64)
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*issues_model.PullRequest), args.Error(1)
+}
+
+func (m *MockPullRequestService) GetUnmergedPullRequest(ctx context.Context, headRepoID, baseRepoID int64, headBranch, baseBranch string) (*issues_model.PullRequest, error) {
+	args := m.Called(ctx, headRepoID, baseRepoID, headBranch, baseBranch)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*issues_model.PullRequest), args.Error(1)
+}
+
+func (m *MockPullRequestService) IsMergeConflictError(err error) bool {
+	args := m.Called(err)
+	return args.Bool(0)
 }
 
 // MockActionLogReader mocks the ActionLogReader interface.
