@@ -99,11 +99,12 @@ func (s *service) GetImportDraft(ctx context.Context, id int64) (*ImportDraft, [
 	return draft, rows, nil
 }
 
-func (s *service) UpdateDraftRow(ctx context.Context, rowID int64, username, email string) error {
+func (s *service) UpdateDraftRow(ctx context.Context, rowID int64, username, email, groupName string) error {
 	row := &ImportDraftRow{
 		ID:       rowID,
 		Username: username,
 		Email:    email,
+		Group:    groupName,
 		Status:   StatusPending,
 	}
 	return s.repo.UpdateImportDraftRow(ctx, row)
