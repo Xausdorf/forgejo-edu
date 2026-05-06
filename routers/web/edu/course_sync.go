@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"forgejo.org/internal/edu"
 	repo_model "forgejo.org/models/repo"
@@ -74,13 +75,18 @@ func CourseSyncPage(ctx *context.Context) {
 			ctx.ServerError("ListCourseSyncPRsByTask", err)
 			return
 		}
-		ctx.Data["SyncPRs"] = prs
 
 		enrollments, _ := svc.GetEnrollments(ctx, course.ID)
+		enrollmentByID := make(map[int64]*edu.CourseEnrollment, len(enrollments))
 		userByEnrollment := make(map[int64]*user_model.User, len(enrollments))
 		repoByEnrollment := make(map[int64]*repo_model.Repository, len(enrollments))
+		groupSet := make(map[string]struct{})
 		orgUser, _ := user_model.GetUserByID(ctx, course.OrgID)
 		for _, e := range enrollments {
+			enrollmentByID[e.ID] = e
+			if e.GroupName != "" {
+				groupSet[e.GroupName] = struct{}{}
+			}
 			if u, err := user_model.GetUserByID(ctx, e.UserID); err == nil {
 				userByEnrollment[e.ID] = u
 			}
@@ -90,9 +96,45 @@ func CourseSyncPage(ctx *context.Context) {
 				}
 			}
 		}
+
+		availableGroups := make([]string, 0, len(groupSet))
+		for g := range groupSet {
+			availableGroups = append(availableGroups, g)
+		}
+
+		rawGroups := ctx.FormStrings("group")
+		selectedGroups := make(map[string]struct{})
+		for _, raw := range rawGroups {
+			for _, g := range strings.Split(raw, ",") {
+				g = strings.TrimSpace(g)
+				if g != "" {
+					selectedGroups[g] = struct{}{}
+				}
+			}
+		}
+
+		filteredPRs := prs
+		if len(selectedGroups) > 0 {
+			filteredPRs = make([]*edu.CourseSyncPR, 0, len(prs))
+			for _, pr := range prs {
+				enr := enrollmentByID[pr.EnrollmentID]
+				if enr == nil {
+					continue
+				}
+				if _, ok := selectedGroups[enr.GroupName]; !ok {
+					continue
+				}
+				filteredPRs = append(filteredPRs, pr)
+			}
+		}
+
+		ctx.Data["SyncPRs"] = filteredPRs
+		ctx.Data["EnrollmentByID"] = enrollmentByID
 		ctx.Data["UserByEnrollment"] = userByEnrollment
 		ctx.Data["RepoByEnrollment"] = repoByEnrollment
 		ctx.Data["OrgUser"] = orgUser
+		ctx.Data["AvailableGroups"] = availableGroups
+		ctx.Data["SelectedGroups"] = rawGroups
 	}
 
 	setEduNavContext(ctx)

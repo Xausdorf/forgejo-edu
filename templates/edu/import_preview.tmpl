@@ -34,7 +34,7 @@
 									<input type="hidden" name="row_id" value="{{$row.ID}}">
 									<input type="text" name="username" value="{{$row.Username}}" style="width: 150px;" required>
 									<input type="text" name="email" value="{{$row.Email}}" placeholder="auto-generated" style="width: 180px;">
-									<span style="flex-shrink: 0;">{{$row.Group}}</span>
+									<input type="text" name="group_name" value="{{$row.Group}}" placeholder="{{ctx.Locale.Tr "edu.group_placeholder"}}" style="width: 110px; flex-shrink: 0;">
 									<button class="ui mini primary button" type="submit" style="flex-shrink: 0;">{{ctx.Locale.Tr "edu.save"}}</button>
 								</form>
 							</td>

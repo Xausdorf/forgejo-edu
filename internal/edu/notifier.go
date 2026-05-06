@@ -105,7 +105,7 @@ func (n *EduNotifier) processCompletedRun(ctx context.Context, run *actions_mode
 	}
 
 	if submission.PullRequestID == 0 {
-		prID, prErr := n.ensurePullRequest(ctx, run.RepoID, branch, assignment, course, doer)
+		prID, prErr := n.ensurePullRequest(ctx, run.RepoID, branch, assignment, course, enrollment, doer)
 		if prErr != nil {
 			// PR creation failure is non-fatal for grading flow — we still
 			// want to record the TestResult and constraint result. Just log
@@ -172,12 +172,14 @@ func (n *EduNotifier) processCompletedRun(ctx context.Context, run *actions_mode
 }
 
 // ensurePullRequest creates the intra-repo PR submits/<task> -> main and returns its ID.
+// The PR title is prefixed with [enrollment.GroupName] when the student belongs to a stream group.
 func (n *EduNotifier) ensurePullRequest(
 	ctx context.Context,
 	repoID int64,
 	branch string,
 	assignment *Assignment,
 	course *Course,
+	enrollment *CourseEnrollment,
 	doer *user_model.User,
 ) (int64, error) {
 	baseBranch, err := n.resolveBaseBranch(ctx, repoID)
@@ -189,7 +191,7 @@ func (n *EduNotifier) ensurePullRequest(
 		BaseBranch: baseBranch,
 		HeadRepoID: repoID,
 		HeadBranch: branch,
-		Title:      "Submit: " + assignment.TaskName,
+		Title:      formatSubmissionPRTitle(assignment.TaskName, enrollment.GroupName),
 		Body:       fmt.Sprintf("Auto-submitted by Edu CI for task `%s` in course **%s**.", assignment.TaskName, course.Name),
 		Doer:       doer,
 	})
@@ -245,4 +247,14 @@ func buildConstraintViolationComment(taskName, glob string, violations []string)
 	b.WriteString(glob)
 	b.WriteString("`. Please remove the unrelated files and push again.")
 	return b.String()
+}
+
+// formatSubmissionPRTitle builds the PR title for an auto-submitted task.
+// When the enrollment has a non-empty GroupName, it is included as a bracketed
+// prefix so instructors can scan submissions by stream group at a glance.
+func formatSubmissionPRTitle(taskName, groupName string) string {
+	if groupName == "" {
+		return "Submit: " + taskName
+	}
+	return "[" + groupName + "] Submit: " + taskName
 }

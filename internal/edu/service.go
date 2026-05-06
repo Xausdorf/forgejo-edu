@@ -83,7 +83,7 @@ type EducationalService interface {
 
 	UploadCSV(ctx context.Context, courseID, creatorID int64, data []byte, mapping CSVColumnMapping) (*ImportDraft, error)
 	GetImportDraft(ctx context.Context, id int64) (*ImportDraft, []*ImportDraftRow, error)
-	UpdateDraftRow(ctx context.Context, rowID int64, username, email string) error
+	UpdateDraftRow(ctx context.Context, rowID int64, username, email, groupName string) error
 	ExecuteImport(ctx context.Context, draftID int64, doerID int64, defaultRole RoleType) (*ImportResult, error)
 	DeleteImportDraft(ctx context.Context, id int64) error
 

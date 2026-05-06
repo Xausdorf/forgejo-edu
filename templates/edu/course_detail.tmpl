@@ -111,6 +111,7 @@
 						{{.CsrfTokenHtml}}
 						<div class="ui action input" style="margin-bottom: 15px;">
 							<input type="text" name="username" placeholder="{{ctx.Locale.Tr "edu.username"}}" required>
+							<input type="text" name="group_name" placeholder="{{ctx.Locale.Tr "edu.group_placeholder"}}" style="max-width: 160px;">
 							<select class="ui compact selection dropdown" name="role">
 								<option value="student">{{ctx.Locale.Tr "edu.student"}}</option>
 								<option value="ta">TA</option>
@@ -125,6 +126,7 @@
 							<thead>
 								<tr>
 									<th>{{ctx.Locale.Tr "edu.username"}}</th>
+									<th>{{ctx.Locale.Tr "edu.group"}}</th>
 									<th>{{ctx.Locale.Tr "edu.role"}}</th>
 									<th>{{ctx.Locale.Tr "edu.enrolled"}}</th>
 									<th></th>
@@ -139,6 +141,9 @@
 											{{else}}
 												User #{{.UserID}}
 											{{end}}
+										</td>
+										<td>
+											{{if .GroupName}}<span class="ui tiny label">{{.GroupName}}</span>{{end}}
 										</td>
 										<td>
 											{{if eq (printf "%s" .Role) "teacher"}}

@@ -99,11 +99,12 @@ func (s *service) GetImportDraft(ctx context.Context, id int64) (*ImportDraft, [
 	return draft, rows, nil
 }
 
-func (s *service) UpdateDraftRow(ctx context.Context, rowID int64, username, email string) error {
+func (s *service) UpdateDraftRow(ctx context.Context, rowID int64, username, email, groupName string) error {
 	row := &ImportDraftRow{
 		ID:       rowID,
 		Username: username,
 		Email:    email,
+		Group:    groupName,
 		Status:   StatusPending,
 	}
 	return s.repo.UpdateImportDraftRow(ctx, row)
@@ -156,6 +157,7 @@ func (s *service) ExecuteImport(ctx context.Context, draftID int64, doerID int64
 					CourseID:    draft.CourseID,
 					UserID:      existingByEmail.ID,
 					Role:        defaultRole,
+					GroupName:   row.Group,
 					CreatedUnix: time.Now().Unix(),
 				}
 				if err := s.repo.EnrollUser(ctx, enrollment); err != nil {
@@ -188,6 +190,7 @@ func (s *service) ExecuteImport(ctx context.Context, draftID int64, doerID int64
 					CourseID:    draft.CourseID,
 					UserID:      existingUser.ID,
 					Role:        defaultRole,
+					GroupName:   row.Group,
 					CreatedUnix: time.Now().Unix(),
 				}
 				if err := s.repo.EnrollUser(ctx, enrollment); err != nil {
@@ -262,6 +265,7 @@ func (s *service) ExecuteImport(ctx context.Context, draftID int64, doerID int64
 			CourseID:    draft.CourseID,
 			UserID:      newUser.ID,
 			Role:        defaultRole,
+			GroupName:   row.Group,
 			CreatedUnix: time.Now().Unix(),
 		}
 		if err := s.repo.EnrollUser(ctx, enrollment); err != nil {

@@ -163,6 +163,7 @@ func ImportUpdateRow(ctx *context.Context) {
 	rowID := ctx.FormInt64("row_id")
 	username := ctx.FormString("username")
 	email := ctx.FormString("email")
+	groupName := ctx.FormString("group_name")
 
 	svc := edu.GetService()
 	if svc == nil {
@@ -218,7 +219,7 @@ func ImportUpdateRow(ctx *context.Context) {
 		return
 	}
 
-	if err := svc.UpdateDraftRow(ctx, rowID, username, email); err != nil {
+	if err := svc.UpdateDraftRow(ctx, rowID, username, email, groupName); err != nil {
 		ctx.ServerError("UpdateDraftRow", err)
 		return
 	}

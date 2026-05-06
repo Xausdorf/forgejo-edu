@@ -96,10 +96,25 @@ func TestUpdateDraftRow(t *testing.T) {
 	svc := NewService(mockRepo, mockForker)
 
 	mockRepo.On("UpdateImportDraftRow", mock.Anything, mock.MatchedBy(func(row *ImportDraftRow) bool {
-		return row.ID == 5 && row.Username == "new-user" && row.Email == "new@test.com" && row.Status == "pending"
+		return row.ID == 5 && row.Username == "new-user" && row.Email == "new@test.com" && row.Group == "" && row.Status == "pending"
 	})).Return(nil)
 
-	err := svc.UpdateDraftRow(context.Background(), 5, "new-user", "new@test.com")
+	err := svc.UpdateDraftRow(context.Background(), 5, "new-user", "new@test.com", "")
+	assert.NoError(t, err)
+
+	mockRepo.AssertExpectations(t)
+}
+
+func TestUpdateDraftRow_WithGroup(t *testing.T) {
+	mockRepo := new(MockRepository)
+	mockForker := new(MockRepoForker)
+	svc := NewService(mockRepo, mockForker)
+
+	mockRepo.On("UpdateImportDraftRow", mock.Anything, mock.MatchedBy(func(row *ImportDraftRow) bool {
+		return row.ID == 5 && row.Username == "new-user" && row.Email == "new@test.com" && row.Group == "SE-241" && row.Status == "pending"
+	})).Return(nil)
+
+	err := svc.UpdateDraftRow(context.Background(), 5, "new-user", "new@test.com", "SE-241")
 	assert.NoError(t, err)
 
 	mockRepo.AssertExpectations(t)
@@ -331,4 +346,46 @@ func TestDeleteImportDraft(t *testing.T) {
 	assert.NoError(t, err)
 
 	mockRepo.AssertExpectations(t)
+}
+
+func TestExecuteImport_PropagatesGroup(t *testing.T) {
+	mockRepo := new(MockRepository)
+	mockForker := new(MockRepoForker)
+	mockUsers := new(MockUserCreator)
+	svc := NewService(mockRepo, mockForker, mockUsers)
+
+	draft := &ImportDraft{ID: 1, CourseID: 10, Status: "draft"}
+	rows := []*ImportDraftRow{
+		{ID: 1, DraftID: 1, FullName: "Ivanov Ivan", Username: "ivanov-i", Group: "SE-241", Status: "pending"},
+		{ID: 2, DraftID: 1, FullName: "Petrova Anna", Username: "petrova-a", Email: "anna@test.com", Group: "SE-242", Status: "pending"},
+	}
+
+	mockRepo.On("GetImportDraft", mock.Anything, int64(1)).Return(draft, nil)
+	mockRepo.On("GetImportDraftRows", mock.Anything, int64(1)).Return(rows, nil)
+
+	// Row 1: existing-by-username path
+	mockUsers.On("GetUserByName", mock.Anything, "ivanov-i").
+		Return(&user_model.User{ID: 50, Name: "ivanov-i"}, nil)
+
+	// Row 2: existing-by-email path
+	mockUsers.On("GetUserByEmail", mock.Anything, "anna@test.com").
+		Return(&user_model.User{ID: 51, Name: "petrova-a"}, nil)
+
+	mockRepo.On("EnrollUser", mock.Anything, mock.MatchedBy(func(e *CourseEnrollment) bool {
+		return e.UserID == 50 && e.GroupName == "SE-241"
+	})).Return(nil).Once()
+	mockRepo.On("EnrollUser", mock.Anything, mock.MatchedBy(func(e *CourseEnrollment) bool {
+		return e.UserID == 51 && e.GroupName == "SE-242"
+	})).Return(nil).Once()
+
+	mockRepo.On("UpdateImportDraftRow", mock.Anything, mock.AnythingOfType("*edu.ImportDraftRow")).Return(nil)
+	mockRepo.On("UpdateImportDraft", mock.Anything, mock.AnythingOfType("*edu.ImportDraft")).Return(nil)
+
+	result, err := svc.ExecuteImport(context.Background(), 1, 1, RoleStudent)
+	assert.NoError(t, err)
+	assert.Equal(t, 2, result.AlreadyExist)
+	assert.Equal(t, 0, result.Errors)
+
+	mockRepo.AssertExpectations(t)
+	mockUsers.AssertExpectations(t)
 }
