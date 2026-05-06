@@ -135,74 +135,78 @@ EducationalService (singleton, interface в service.go)
 
 Все интерфейсы определены в `internal/edu/service.go`.
 
-### 2.3 Модель данных (10 таблиц)
+### 2.3 Модель данных (11 таблиц)
 
-Таблицы создаются автоматически через Xorm `e.Sync()` при старте приложения в `init.go`. Миграций нет. Большинство моделей определяют метод `TableName()` для задания имени таблицы с префиксом `edu_`.
+Все таблицы создаются Xorm-ом автоматически на старте через `e.Sync(...)` в `init.go`. Префикс `edu_` гарантируется методами `TableName()`. Ручных миграций для edu-таблиц нет — продакшена нет, при изменении схемы база пересоздаётся.
 
-![ER-диаграмма модели данных](er-diagram.png)
+#### Основные сущности
 
-#### Вспомогательные таблицы:
+| Таблица | Назначение | Ключевые поля |
+|---|---|---|
+| `edu_courses` | Курс | `Name`, `CreatorID`, `OrgID`, `TasksMasterRepoID` (опционально, ссылается на единственный `tasks-master`-репо курса), `StartUnix`, `EndUnix` |
+| `edu_course_enrollments` | Зачисление | `CourseID`, `UserID`, `Role`, `GroupName` (опц., поток/группа), `StudentForkRepoID` (заполняется на стадии init-forks), UNIQUE(CourseID, UserID) |
+| `edu_assignments` | Задание | `CourseID`, `TaskName` (имя папки в `tasks/` и часть имени ветки `submits/<TaskName>`), `AllowedFilesGlob` (авторитетный список путей, на которые студент имеет право), `Title`, `DeadlineUnix`, UNIQUE(CourseID, TaskName) |
+| `edu_submissions` | Сабмит | `AssignmentID`, `EnrollmentID`, `BranchName` (= `submits/<TaskName>`), `PullRequestID` (0 пока notifier не создал PR), `Status`, `Grade`, `ManualGrade` (TA подтвердил — auto-grade больше не перезаписывает), `Comment`, `GradedByID`, UNIQUE(EnrollmentID, AssignmentID) |
+| `edu_test_results` | Лог CI-прогона | `SubmissionID`, `CommitSHA`, `Score`, `Details` |
+| `edu_user_role` | Глобальная роль | `UserID` UNIQUE, `Role` |
+
+#### Импорт из CSV
 
 | Таблица | Назначение |
-|---------|------------|
-| `edu_user_role` | Глобальная роль пользователя (student/teacher/admin). |
-| `edu_import_draft` | Черновик CSV-импорта (храним сырой CSV) |
-| `edu_import_draft_row` | Строки черновика импорта (ФИО, email, username, status) |
-| `edu_bulk_fork_task` | Задача массового форка (прогресс: completed/failed/total) |
-| `edu_sync_fork_task` | Задача массовой синхронизации форков (synced/skipped/failed) |
+|---|---|
+| `edu_import_draft` | Сессия импорта (`CourseID`, `Status`, `RawCSV`) |
+| `edu_import_draft_row` | Строка драфта (`FullName`, `Email`, `Group`, `Username`, `Role`, `Status`) |
 
-> **Именование таблиц:** Все 10 моделей определяют метод `TableName()` в `models.go`, поэтому Xorm создаёт таблицы с единообразным префиксом `edu_` (например, `edu_courses`, `edu_user_role`, `edu_bulk_fork_task` и т.д.).
+#### Async-таски
 
-> **UNIQUE constraint на enrollments:** `edu_course_enrollments` имеет UNIQUE индекс `idx_course_user` на `(CourseID, UserID)`, что предотвращает дублирование записей студента в одном курсе. При попытке повторной записи БД вернёт ошибку.
+| Таблица | Назначение |
+|---|---|
+| `edu_init_forks_task` | Инициализация форков `tasks-master` для всех зачисленных студентов (`CourseID`, `TotalUsers`, `Completed`, `Failed`, `Status`) |
+| `edu_distribute_task` | Раздача ветки `submits/<TaskName>` всем студенческим форкам (`AssignmentID`, `TotalEnrollments`, `Pushed`, `Failed`, `Status`) |
+| `edu_course_sync_task` | Запуск course-sync (`CourseID`, `TotalRepos`, `Synced`, `Skipped`, `Failed`, `Status`) |
+| `edu_course_sync_pr` | Per-fork PR-запись для course-sync (`SyncTaskID`, `EnrollmentID`, `PullRequestID`, `Status`: pending/merged/conflict/failed) |
 
-#### Общие константы статусов:
+#### Жизненный цикл `Submission.Status`
 
-В `models.go` определены константы статусов, используемые в нескольких моделях (import drafts, bulk fork tasks, sync fork tasks):
-- `StatusDraft` — черновик
-- `StatusPending` — ожидает обработки
-- `StatusRunning` — выполняется
-- `StatusDone` — завершено успешно
-- `StatusError` — завершено с ошибкой
+```
+pending  → ветка раздана, студент ещё не пушил
+running  → CI идёт
+done     → CI прошёл, PR создан, ждёт TA
+approved → TA нажал Approve, оценка зафиксирована
+merged   → TA нажал Merge
+failed   → constraint check / тесты упали
+```
 
-#### Статусы Submission:
-- `started` — студент взял задание, форк создан
-- `submitted` — (зарезервирован для ручной сдачи)
-- `passed` — CI/CD прошёл успешно
-- `failed` — CI/CD упал
-- `graded` — преподаватель выставил оценку
+#### Общие константы статусов (для async-task / draft)
+
+В `models.go` определены `StatusDraft`, `StatusPending`, `StatusRunning`, `StatusDone`, `StatusError`.
 
 ### 2.4 Файлы `internal/edu/`
 
-| Файл | Содержимое |
-|------|------------|
-| `models.go` | Все структуры данных (Course, Assignment, Submission, TestResult, ...) |
-| `service.go` | Интерфейсы EducationalService, Repository, RepoForker, UserCreator, OrgManager; конструктор |
-| `repository.go` | xormRepository, CRUD для assignments и submissions |
-| `repository_courses.go` | CRUD для courses |
-| `repository_enrollments.go` | CRUD для enrollments |
-| `repository_submissions.go` | Дополнительные методы submissions (GetByRepoID) |
-| `repository_test_results.go` | CRUD для test results |
-| `repository_import.go` | CRUD для import drafts и draft rows |
-| `repository_bulk_fork.go` | CRUD для bulk fork tasks |
-| `repository_sync_fork.go` | CRUD для sync fork tasks |
-| `repository_ext.go` | Расширенные запросы (GetAssignmentsForUser через JOIN enrollment) |
-| `service_courses.go` | Бизнес-логика курсов |
-| `service_join.go` | Логика "взять задание" (fork + create submission) |
-| `service_import.go` | Логика CSV импорта (upload → preview → execute) |
-| `service_bulk_fork.go` | Логика массового форка |
-| `service_sync_fork.go` | Логика массовой синхронизации |
-| `service_grading.go` | Логика оценивания |
-| `service_ext.go` | Расширенные сервисные методы |
-| `csv_import.go` | Парсер CSV (BOM, Windows-1251, авто-разделитель) |
-| `translit.go` | Транслитерация кириллицы → латиница (ГОСТ 7.79-2000) |
-| `adapter.go` | ForgejoAdapter — мост к ядру Forgejo |
-| `notifier.go` | EduNotifier — обработка событий CI/CD |
-| `grade_parser.go` | Парсинг `::edu-grade::XX` из строк CI-логов (`ParseGradeFromLogLines`) |
-| `role.go` | Управление глобальными ролями через Xorm ORM (таблица `edu_user_role`) |
-| `init.go` | Инициализация: sync схемы, создание singleton-сервиса (`NewService`), регистрация нотификатора (`RegisterNotifier`), загрузка edu-локалей |
-| `mock_test.go` | Моки для unit-тестов |
-| `locale/*.json` | Встраиваемые (embed) JSON-файлы локализации для edu-ключей |
-| `*_test.go` | Unit-тесты для каждого компонента |
+| Файл | Назначение |
+|---|---|
+| `models.go` | Xorm-структуры всех 11 таблиц + общие константы статусов |
+| `init.go` | `Init()` — sync схемы, создание singleton-сервиса, регистрация notifier, загрузка локалей |
+| `service.go` | Интерфейс `EducationalService` и фабрика `NewService` |
+| `service_courses.go` | CRUD-операции для курсов и зачислений |
+| `service_assignments_test.go`, `service_courses_test.go` | Unit-тесты на моках |
+| `service_init_forks.go` | Инициализация форков (collaborator + branch protection) |
+| `service_distribute.go` | Bulk push ветки `submits/<TaskName>` + создание `Submission(pending)` |
+| `service_course_sync.go` | course-sync: push `course-sync`, открыть PR, auto-merge |
+| `service_grading.go` | Approve / Merge / Comment / Reset-approval от имени `eduadmin` |
+| `service_import.go` | CSV-imporт (upload → preview → execute), пробрасывание GroupName |
+| `service_bulk_fork.go` | Внутренний хелпер для bulk-операций над форками (init-forks использует) |
+| `service_ext.go` | Расширения сервиса для ad-hoc-вызовов из хендлеров |
+| `csv_import.go` | Чистый парсер CSV (BOM, кодировки, разделители, транслитерация ГОСТ 7.79-2000) |
+| `repository.go` + `repository_*.go` | Xorm-DAL: `repository_courses.go`, `repository_enrollments.go`, `repository_submissions.go`, `repository_test_results.go`, `repository_import.go`, `repository_init_forks.go`, `repository_distribute.go`, `repository_course_sync.go`, `repository_sync_pr.go`, `repository_ext.go` |
+| `adapter.go` | `ForgejoAdapter`: bridge к ядру (forking, user creation, org teams) |
+| `adapter_pulls.go` | Адаптер PR-операций: `NewPullRequest`, `Merge`, `CreateIssueComment`, чтение комментариев и diff-а |
+| `adapter_actions.go` | Адаптер для `actions.ReadLogs` |
+| `notifier.go` | Хук на `ActionRunNowDone` — constraint check, парсинг `::edu-grade::`, авто-PR, обновление статуса |
+| `notifier_format_test.go`, `notifier_test.go` | Unit-тесты notifier-а |
+| `grade_parser.go` | `ParseGradeFromLogLines` — извлекает `::edu-grade::XX` из текста логов |
+| `role.go` | DAL для глобальной `UserRole` |
+| `locale/locale_en-US.json`, `locale/locale_ru-RU.json` | Локали (~135+ ключей edu.*) |
 
 ### 2.5 Ключевые сценарии
 
