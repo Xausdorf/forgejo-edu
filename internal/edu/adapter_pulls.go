@@ -186,8 +186,7 @@ func (a *ForgejoAdapter) GetPullRequest(ctx context.Context, prID int64) (*issue
 	return pr, nil
 }
 
-// GetUnmergedPullRequest returns the open PR (if any) from headRepoID:headBranch
-// to baseRepoID:baseBranch. Returns (nil, nil) if there is no open PR.
+// Returns (nil, nil) when no open PR matches — callers branch on that.
 func (a *ForgejoAdapter) GetUnmergedPullRequest(ctx context.Context, headRepoID, baseRepoID int64, headBranch, baseBranch string) (*issues_model.PullRequest, error) {
 	pr, err := issues_model.GetUnmergedPullRequest(ctx, headRepoID, baseRepoID, headBranch, baseBranch, issues_model.PullRequestFlowGithub)
 	if err != nil {
@@ -202,10 +201,7 @@ func (a *ForgejoAdapter) GetUnmergedPullRequest(ctx context.Context, headRepoID,
 	return pr, nil
 }
 
-// IsMergeConflictError reports whether err is the well-known
-// models.ErrMergeConflicts (returned by services/pull.Merge when the merge
-// would leave conflicts). Wrapped here so the service layer does not import
-// forgejo.org/models directly.
+// Wrapped so the service layer does not import forgejo.org/models directly.
 func (a *ForgejoAdapter) IsMergeConflictError(err error) bool {
 	return err != nil && models.IsErrMergeConflicts(err)
 }

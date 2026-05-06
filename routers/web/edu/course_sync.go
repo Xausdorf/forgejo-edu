@@ -18,9 +18,7 @@ const (
 	tplCourseSync base.TplName = "edu/course_sync"
 )
 
-// loadCourseForSync resolves the course and verifies the caller is a full
-// teacher who owns the course (or site admin). On failure the response has
-// already been written.
+// On failure the response has already been written.
 func loadCourseForSync(ctx *context.Context) (*edu.Course, bool) {
 	if !isFullTeacher(ctx) {
 		ctx.Error(http.StatusForbidden, "Only teachers can manage course sync")
@@ -52,8 +50,6 @@ func courseSyncURL(ctx *context.Context) string {
 	return setting.AppSubURL + "/edu/teacher/courses/" + ctx.Params(":id") + "/sync"
 }
 
-// CourseSyncPage renders the per-course sync dashboard: latest task summary,
-// per-PR table, action buttons.
 func CourseSyncPage(ctx *context.Context) {
 	ctx.Data["Title"] = ctx.Tr("edu.sync.title")
 	ctx.Data["PageIsEduCourses"] = true
@@ -103,7 +99,6 @@ func CourseSyncPage(ctx *context.Context) {
 	ctx.HTML(http.StatusOK, tplCourseSync)
 }
 
-// StartCourseSyncPost kicks off an asynchronous sync run.
 func StartCourseSyncPost(ctx *context.Context) {
 	course, ok := loadCourseForSync(ctx)
 	if !ok {
@@ -128,7 +123,6 @@ func StartCourseSyncPost(ctx *context.Context) {
 	ctx.Redirect(courseSyncURL(ctx))
 }
 
-// CourseSyncStatus returns JSON progress for the latest course-sync task.
 func CourseSyncStatus(ctx *context.Context) {
 	course, ok := loadCourseForSync(ctx)
 	if !ok {
@@ -155,8 +149,6 @@ func CourseSyncStatus(ctx *context.Context) {
 	})
 }
 
-// MergeAllCourseSyncPost merges every CourseSyncPR in the given task that is
-// still in pending state.
 func MergeAllCourseSyncPost(ctx *context.Context) {
 	_, ok := loadCourseForSync(ctx)
 	if !ok {
@@ -174,7 +166,6 @@ func MergeAllCourseSyncPost(ctx *context.Context) {
 	ctx.Redirect(courseSyncURL(ctx))
 }
 
-// MergeOneCourseSyncPost merges a single CourseSyncPR by id.
 func MergeOneCourseSyncPost(ctx *context.Context) {
 	_, ok := loadCourseForSync(ctx)
 	if !ok {

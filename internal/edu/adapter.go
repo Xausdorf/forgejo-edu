@@ -103,12 +103,8 @@ func (a *ForgejoAdapter) SyncFork(ctx context.Context, doer *user_model.User, fo
 	})
 }
 
-// PushBranchToFork force-pushes srcBranch from the fork's BaseRepo to dstBranch
-// on the fork, using InternalPushingEnvironment to bypass branch protection.
-//
-// Used by course sync: srcBranch="main", dstBranch="course-sync". Force-push is
-// intentional — the course-sync branch is server-managed (tracks tasks-master/main),
-// students are not expected to commit to it.
+// Force-push: dstBranch is server-managed; any divergent commits on it are
+// intentionally overwritten.
 func (a *ForgejoAdapter) PushBranchToFork(ctx context.Context, doer *user_model.User, forkRepo *repo_model.Repository, srcBranch, dstBranch string) error {
 	if err := forkRepo.GetBaseRepo(ctx); err != nil {
 		return fmt.Errorf("get base repo: %w", err)

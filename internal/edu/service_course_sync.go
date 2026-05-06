@@ -20,7 +20,6 @@ const (
 	courseSyncMergeStyle = "merge"
 )
 
-// Sentinel errors for course sync.
 var (
 	ErrCourseSyncNoMaster     = errors.New("course has no tasks-master repository configured")
 	ErrCourseSyncNoOrg        = errors.New("course is not bound to an organization")
@@ -30,13 +29,8 @@ var (
 	ErrCourseSyncPRNotPending = errors.New("course sync PR is not in pending state")
 )
 
-// StartCourseSync kicks off an asynchronous course-sync run: for each enrolled
-// student with a fork, push tasks-master/main to a course-sync branch in the
-// fork, ensure a PR course-sync → main exists, and try auto-merge.
-//
-// Returns the CourseSyncTask immediately; per-PR work runs in a goroutine.
-// Conflicting and failed PRs are recorded but do not stop the run; the task
-// finishes with StatusDone if at least one PR succeeded, otherwise StatusError.
+// Task ends in StatusDone if at least one PR merged or hit a conflict; only
+// all-failures flips it to StatusError.
 func (s *service) StartCourseSync(ctx context.Context, courseID, doerID int64) (*CourseSyncTask, error) {
 	if s.users == nil || s.pulls == nil {
 		return nil, fmt.Errorf("user creator / pull request service not configured")
@@ -159,9 +153,7 @@ func (s *service) executeCourseSync(ctx context.Context, task *CourseSyncTask, c
 	}
 }
 
-// syncOneFork performs the per-student sync work and inserts a CourseSyncPR row.
-// Returns the resulting SyncPRStatus and (for the failed/non-conflict path) the
-// underlying error for inclusion in the task error log.
+// Returns a non-nil error only on Failed; Conflict is a normal outcome.
 func (s *service) syncOneFork(ctx context.Context, task *CourseSyncTask, course *Course, doer *user_model.User, enrollment *CourseEnrollment) (SyncPRStatus, error) {
 	syncPR := &CourseSyncPR{
 		SyncTaskID:   task.ID,
@@ -220,10 +212,8 @@ func (s *service) syncOneFork(ctx context.Context, task *CourseSyncTask, course 
 	return finish(SyncPRStatusMerged, "", pr.ID)
 }
 
-// ensureCourseSyncPullRequest returns the existing open course-sync → main PR
-// in the fork, or creates a new one if none is open. Idempotent across re-runs:
-// if the previous run left an open PR (e.g. because of a conflict), this run
-// reuses it after the new force-push to course-sync moved its head ref.
+// Idempotent across re-runs: an open PR left by a prior conflict is reused so
+// CreatePullRequest does not fail with ErrPullRequestAlreadyExists.
 func (s *service) ensureCourseSyncPullRequest(ctx context.Context, forkRepo *repo_model.Repository, course *Course, doer *user_model.User) (*issues_model.PullRequest, error) {
 	existing, err := s.pulls.GetUnmergedPullRequest(ctx, forkRepo.ID, forkRepo.ID, courseSyncDstBranch, courseSyncSrcBranch)
 	if err != nil {
@@ -259,10 +249,6 @@ func (s *service) failCourseSyncTask(ctx context.Context, task *CourseSyncTask, 
 	}
 }
 
-// MergeAllCourseSyncPRs walks all CourseSyncPR rows for taskID with status=pending
-// (PR open, not yet merged) and tries to merge each one synchronously. Returns
-// the number of successfully merged PRs. Conflicting PRs are flipped to status
-// conflict; other errors flip to failed.
 func (s *service) MergeAllCourseSyncPRs(ctx context.Context, taskID, doerID int64) (int, error) {
 	if s.pulls == nil {
 		return 0, fmt.Errorf("pull request service not configured")
@@ -299,8 +285,6 @@ func (s *service) MergeAllCourseSyncPRs(ctx context.Context, taskID, doerID int6
 	return merged, nil
 }
 
-// MergeCourseSyncPR merges a single CourseSyncPR by id. Validates that the row
-// is in pending state and has a PR; flips status on the result.
 func (s *service) MergeCourseSyncPR(ctx context.Context, syncPRID, doerID int64) error {
 	if s.pulls == nil {
 		return fmt.Errorf("pull request service not configured")
