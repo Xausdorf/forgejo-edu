@@ -350,6 +350,7 @@ func EnrollUserPost(ctx *context.Context) {
 	courseID := ctx.ParamsInt64(":id")
 	username := ctx.FormString("username")
 	role := ctx.FormString("role")
+	groupName := ctx.FormString("group_name")
 
 	svc := edu.GetService()
 	if svc == nil {
@@ -397,7 +398,7 @@ func EnrollUserPost(ctx *context.Context) {
 		r = edu.RoleStudent
 	}
 
-	if err := svc.EnrollUser(ctx, edu.EnrollUserOptions{CourseID: courseID, UserID: u.ID, Role: r}); err != nil {
+	if err := svc.EnrollUser(ctx, edu.EnrollUserOptions{CourseID: courseID, UserID: u.ID, Role: r, GroupName: groupName}); err != nil {
 		if errors.Is(err, edu.ErrUserAlreadyEnrolled) {
 			ctx.Flash.Error(ctx.Tr("edu.user_already_enrolled"))
 			ctx.Redirect(setting.AppSubURL + "/edu/teacher/courses/" + ctx.Params(":id"))
