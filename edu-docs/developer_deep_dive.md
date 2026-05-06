@@ -10,19 +10,19 @@
 - [Часть 2: Образовательное расширение](#часть-2-образовательное-расширение-edu-extension)
   - [2.1 Где лежит код?](#21-где-лежит-код)
   - [2.2 Архитектура модуля](#22-архитектура-модуля)
-  - [2.3 Модель данных (10 таблиц)](#23-модель-данных-10-таблиц)
+  - [2.3 Модель данных (11 таблиц)](#23-модель-данных-11-таблиц)
   - [2.4 Файлы internal/edu/](#24-файлы-internaledu)
   - [2.5 Ключевые сценарии](#25-ключевые-сценарии)
     - [А. Управление курсами](#а-управление-курсами)
     - [Б. CSV-импорт студентов](#б-csv-импорт-студентов)
     - [В. Создание задания](#в-создание-задания)
-    - [Г. Студент берёт задание (Join)](#г-студент-берёт-задание-join)
-    - [Д. Массовый форк (Bulk Fork)](#д-массовый-форк-bulk-fork)
-    - [Е. Синхронизация форков (Sync Forks)](#е-синхронизация-форков-sync-forks)
-    - [Ж. CI/CD интеграция](#ж-cicd-интеграция-автоматическое-тестирование)
-    - [З. Ручное оценивание](#з-ручное-оценивание-grading)
-    - [И. Административная панель](#и-административная-панель)
-    - [К. Маппинг ролей на организацию](#к-маппинг-ролей-на-организацию-forgejo)
+    - [Г. Init forks](#г-init-forks-инициализация-студенческих-форков-на-уровне-курса)
+    - [Д. Distribute](#д-distribute-раздача-задания)
+    - [Е. CI/CD: путь от push студента до PR](#е-cicd-путь-от-push-студента-до-pr)
+    - [Ж. Submission review](#ж-submission-review-approve--merge-через-edu-ui)
+    - [З. Course sync](#з-course-sync-pr-based-синхронизация-шаблона-в-форки)
+    - [И. Auto-grade vs ManualGrade](#и-auto-grade-vs-manualgrade)
+    - [К. Маппинг ролей на org](#к-маппинг-ролей-на-org)
     - [Л. Каскадное удаление курса](#л-каскадное-удаление-курса)
     - [М. Ограничение доступа по активности курса](#м-ограничение-доступа-по-активности-курса)
   - [2.6 Полная карта роутов](#26-полная-карта-роутов)
@@ -381,48 +381,61 @@ CI пишет `::edu-grade::XX` → notifier пишет `Submission.Grade` **т�
 
 ### 2.6 Полная карта роутов
 
-```
-/edu
-├── /dashboard                          → Redirect по роли (teacher→assignments, student→assignments)
-│
-├── /student
-│   ├── /assignments                    → Список заданий (только по enrolled курсам)
-│   ├── /assignments/{id}               → Детали задания + CI результат + оценка
-│   └── /assignments/{id}/join          → POST: взять задание (fork + submission)
-│
-├── /teacher                                [reqEduTeacher middleware — требует роль teacher/admin]
-│   ├── /assignments                    → Список заданий преподавателя
-│   ├── /assignments/new                → GET/POST: создать задание
-│   ├── /assignments/{id}/edit          → GET/POST: редактировать задание
-│   ├── /assignments/{id}/delete        → POST: удалить задание
-│   ├── /assignments/{id}/submissions   → Таблица работ студентов
-│   ├── /assignments/{id}/bulk-fork        → POST: массовый форк
-│   ├── /assignments/{id}/bulk-fork-status → GET: статус/прогресс массового форка
-│   ├── /assignments/{id}/sync-forks       → POST: синхронизация форков
-│   ├── /assignments/{id}/sync-fork-status → GET: статус/прогресс синхронизации
-│   ├── /assignments/{id}/submissions/{subID}             → Детали submission
-│   ├── /assignments/{id}/submissions/{subID}/grade       → POST: выставить оценку
-│   ├── /assignments/{id}/submissions/{subID}/reset-grade → POST: сброс на авто-оценку CI
-│   ├── /dashboard                      → Redirect на /teacher/assignments
-│   │
-│   └── /courses
-│       ├── /                           → Список курсов
-│       ├── /new                        → GET/POST: создать курс
-│       ├── /{id}                       → Детали курса (участники)
-│       ├── /{id}/edit                  → GET/POST: редактировать курс
-│       ├── /{id}/delete                → POST: удалить курс
-│       ├── /{id}/enroll                → POST: записать студента
-│       ├── /{id}/unenroll              → POST: отчислить студента
-│       ├── /{id}/import                → GET/POST: загрузка CSV
-│       ├── /{id}/import/{draftID}/preview    → GET: предпросмотр импорта
-│       ├── /{id}/import/{draftID}/update-row → POST: правка строки
-│       ├── /{id}/import/{draftID}/execute    → POST: выполнить импорт
-│       └── /{id}/import/{draftID}/delete     → POST: удалить черновик
-│
-└── /admin                                  [reqEduAdmin middleware — требует Forgejo site admin]
-    ├── /                               → Панель управления ролями
-    └── /roles                          → POST: обновить роль пользователя
-```
+Все edu-роуты в `routers/web/edu/routes.go`. Файлы хендлеров: `dashboard.go`, `courses.go`, `assignments.go`, `instructor.go`, `grading.go`, `course_sync.go`, `import.go`, `admin.go`.
+
+#### Студент
+
+| Метод | Путь | Хендлер | Что делает |
+|---|---|---|---|
+| GET | `/edu/dashboard` | `Dashboard` | Redirect по роли |
+| GET | `/edu/student/assignments` | `StudentAssignments` | Список своих сабмитов (только активные курсы) |
+| GET | `/edu/student/assignments/{id}` | `AssignmentDetail` | Детали: ссылка на fork, ветку, CI, PR, оценку |
+
+#### Преподаватель / TA
+
+| Метод | Путь | Хендлер | Доступ |
+|---|---|---|---|
+| GET | `/edu/teacher/courses` | `CourseList` | TA / Teacher |
+| GET / POST | `/edu/teacher/courses/new` | `NewCourse` / `NewCoursePost` | Teacher |
+| GET | `/edu/teacher/courses/{id}` | `CourseDetail` | TA / Teacher |
+| GET / POST | `/edu/teacher/courses/{id}/edit` | `EditCourse` / `EditCoursePost` | Teacher (creator) |
+| POST | `/edu/teacher/courses/{id}/delete` | `DeleteCoursePost` | Teacher (creator) |
+| POST | `/edu/teacher/courses/{id}/enroll` | `EnrollUserPost` | Teacher |
+| POST | `/edu/teacher/courses/{id}/unenroll` | `RemoveEnrollmentPost` | Teacher |
+| POST | `/edu/teacher/courses/{id}/init-forks` | `InitForksPost` | Teacher |
+| GET | `/edu/teacher/courses/{id}/init-forks-status` | `InitForksStatus` | Teacher |
+| GET | `/edu/teacher/courses/{id}/sync` | `CourseSyncPage` | TA / Teacher |
+| POST | `/edu/teacher/courses/{id}/sync/start` | `StartCourseSyncPost` | Teacher |
+| GET | `/edu/teacher/courses/{id}/sync/status` | `CourseSyncStatus` | TA / Teacher |
+| POST | `/edu/teacher/courses/{id}/sync/{taskID}/merge-all` | `MergeAllCourseSyncPost` | TA / Teacher |
+| POST | `/edu/teacher/courses/{id}/sync/{taskID}/merge/{prID}` | `MergeOneCourseSyncPost` | TA / Teacher |
+| GET / POST | `/edu/teacher/courses/{id}/import` | `ImportUpload` / `ImportUploadPost` | Teacher |
+| GET | `/edu/teacher/courses/{id}/import/{draftID}/preview` | `ImportPreview` | Teacher |
+| POST | `/edu/teacher/courses/{id}/import/{draftID}/update-row` | `ImportUpdateRow` | Teacher |
+| POST | `/edu/teacher/courses/{id}/import/{draftID}/execute` | `ImportExecutePost` | Teacher |
+| POST | `/edu/teacher/courses/{id}/import/{draftID}/delete` | `ImportDeletePost` | Teacher |
+| GET | `/edu/teacher/assignments` | `TeacherAssignments` | TA / Teacher |
+| GET / POST | `/edu/teacher/assignments/new` | `NewAssignment` / `NewAssignmentPost` | Teacher |
+| GET / POST | `/edu/teacher/assignments/{id}/edit` | `EditAssignment` / `EditAssignmentPost` | Teacher |
+| POST | `/edu/teacher/assignments/{id}/delete` | `DeleteAssignmentPost` | Teacher |
+| POST | `/edu/teacher/assignments/{id}/distribute` | `DistributePost` | Teacher |
+| GET | `/edu/teacher/assignments/{id}/distribute-status` | `DistributeStatus` | TA / Teacher |
+| GET | `/edu/teacher/assignments/{id}/submissions` | `InstructorSubmissions` | TA / Teacher |
+| GET | `/edu/teacher/assignments/{id}/submissions/{subID}` | `SubmissionReview` | TA / Teacher |
+| POST | `/edu/teacher/assignments/{id}/submissions/{subID}/approve` | `ApproveSubmissionPost` | TA / Teacher |
+| POST | `/edu/teacher/assignments/{id}/submissions/{subID}/merge` | `MergeSubmissionPost` | TA / Teacher |
+| POST | `/edu/teacher/assignments/{id}/submissions/{subID}/comment` | `CommentSubmissionPost` | TA / Teacher |
+| POST | `/edu/teacher/assignments/{id}/submissions/{subID}/reset-approval` | `ResetApprovalPost` | TA / Teacher |
+| GET | `/edu/teacher/dashboard` | redirect | TA / Teacher |
+
+«Teacher» = full teacher (`isFullTeacher` — teacher / admin / site admin). «Teacher (creator)» = плюс `course.CreatorID == ctx.Doer.ID`. Удалённые роуты: `/edu/student/assignments/{id}/join`, `/edu/teacher/assignments/{id}/bulk-fork(-status)`, `/edu/teacher/assignments/{id}/sync-forks(-status)` — заменены на init-forks / distribute / course-sync уровня курса.
+
+#### Админ
+
+| Метод | Путь | Хендлер |
+|---|---|---|
+| GET | `/edu/admin` | `AdminPanel` |
+| POST | `/edu/admin/roles` | `UpdateUserRolePost` |
 
 ### 2.7 Интеграция с ядром Forgejo
 
@@ -602,30 +615,21 @@ log.Info("Educational Extension initialized successfully.")
 
 ### 3.7 Права доступа и авторизация
 
-Edu-модуль использует **два уровня** авторизации:
-
 #### Middleware (роутерный уровень)
+- `reqEduTeacher` — пропускает только пользователей с edu-ролью `ta`, `teacher`, или `admin` (или site admin). Все `/edu/teacher/*`-роуты под ним.
+- `reqEduAdmin` — пропускает только site admin или edu admin. `/edu/admin/*`.
+- Проверка `isFullTeacher` (teacher / admin / site admin) — внутри хендлеров для мутирующих операций (CRUD, init-forks, distribute, course-sync start, import, enrollment).
 
-Файл `routers/web/edu/middleware.go` содержит два middleware:
+#### Проверка владения курсом (handler-уровень)
+Любая мутация курса (`/edit`, `/delete`, `/enroll`, `/unenroll`, `/init-forks`, `/import/*`) проверяет `course.CreatorID == ctx.Doer.ID` (site admin может всё). Это защищает от кросс-преподавательской подделки `course_id`.
 
-- **`reqEduTeacher`** — проверяет, что у текущего пользователя edu-роль `teacher` или `admin` (через таблицу `edu_user_role`). Применяется ко всей группе `/edu/teacher/*`. Если роль отсутствует — возвращает 403.
-- **`reqEduAdmin`** — проверяет, что пользователь является Forgejo site admin (`ctx.Doer.IsAdmin`). Применяется к `/edu/admin/*`.
+#### Права в Git-слое
+- **Student**: член team `edu-course-{id}-students` (Read на `tasks-master` через `IncludesAllRepositories=false` + repo-список). На свой `<username>-tasks` — Write через collaborator-запись. На чужие форки — никаких прав. Push в свой `main` ему запрещён branch-protection-ом; merge только через edu-UI под `eduadmin`.
+- **TA**: член team `edu-course-{id}-ta` (`IncludesAllRepositories=true`, Read на всю org). Видит `tasks-master` и все форки read-only. Через edu-UI — может комментировать, Approve, Merge.
+- **Teacher / Admin**: член team `edu-course-{id}-teachers` (Admin на всю org). Может всё.
 
-#### Проверка владения курсом (хендлерный уровень)
-
-Мутирующие операции над курсами (edit, delete, enroll, unenroll, import) дополнительно проверяют `course.CreatorID == ctx.Doer.ID`. Это гарантирует, что один преподаватель не может редактировать курсы другого. Если проверка не проходит — возвращается 403.
-
-#### Проверка прав доступа к репозиторию (Forgejo core)
-
-Для операций с репозиториями используется Forgejo core:
-
-```go
-perm, err := access_model.GetUserRepoPermission(ctx, repo, ctx.Doer)
-if !perm.IsAdmin() && !perm.CanWrite(unit_model.TypeCode) {
-    ctx.Error(http.StatusForbidden, "Only instructors can view this page")
-    return
-}
-```
+#### Системный пользователь `eduadmin`
+Все merge-операции (Approve→Merge, course-sync auto-merge, ручной merge через UI) выполняются от имени `eduadmin` через прямые internal Go-вызовы. Это тот же пользователь, который используется для регистрации `forgejo-runner`. У него — site admin плюс ownership на org-и созданные при первом запуске.
 
 ### 3.8 Обработка ошибок
 
