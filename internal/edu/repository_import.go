@@ -48,7 +48,7 @@ func (r *xormRepository) GetImportDraftRows(ctx context.Context, draftID int64) 
 }
 
 func (r *xormRepository) UpdateImportDraftRow(ctx context.Context, row *ImportDraftRow) error {
-	_, err := db.GetEngine(ctx).ID(row.ID).Cols("username", "email", "status", "error_msg").Update(row)
+	_, err := db.GetEngine(ctx).ID(row.ID).Cols("username", "email", "group_name", "status", "error_msg").Update(row)
 	if err != nil {
 		return fmt.Errorf("update import draft row: %w", err)
 	}
