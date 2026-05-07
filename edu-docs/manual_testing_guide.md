@@ -26,7 +26,7 @@
    - `user2` → `student`
    - `user3` → `student` (для проверки, что не видит чужие курсы)
 
-3. Создайте репозиторий-шаблон (войдите как `user1`, создайте `homework-template` с README и опционально с `.forgejo/workflows/test.yml`).
+3. У преподавателя должен быть `tasks-master` репозиторий в org-е с примером задания (`tasks/sample/`) и `.forgejo/workflows/grade.yml`. Используйте `test-kit/template-tasks-master/` как заготовку.
 
 ---
 
@@ -111,7 +111,7 @@
 
 1. Войдите как `user1`.
 2. Перейдите на `/edu/teacher/assignments/new`.
-3. Выберите курс "Программирование 101", репозиторий `homework-template`.
+3. Выберите курс "Программирование 101", заполните `task_name=multiplication`, `allowed_files_glob=tasks/multiplication/multiplication.cpp`.
 4. Заполните: Title = "ДЗ 1", Description = "Решите задачи", Deadline = будущая дата.
 5. Нажмите "Create".
 
@@ -136,105 +136,153 @@
 
 **Ожидаемый результат**: Список пуст — `user3` не видит чужие задания.
 
-### 3.4 Начало выполнения (Join)
+---
 
-1. Войдите как `user2`.
-2. Перейдите на `/edu/student/assignments/{id}` (нажав на задание в списке).
-3. Нажмите "Start Assignment".
+## Сценарий 4: Init forks (инициализация студенческих форков)
 
-**Ожидаемый результат**:
-- Создан форк репозитория в пространстве `user2`.
-- На странице задания появилась ссылка "Go to Repository".
-- Статус: `started`.
+### 4.1 Успешный запуск
 
-### 3.5 Join с прошедшим дедлайном
+1. Создать курс с `OrgID` и `TasksMasterRepoID`.
+2. Зачислить 3 студентов (через ручную форму или CSV).
+3. На странице курса нажать **Init forks**.
+4. Дождаться `Status=done` на странице `/init-forks-status`.
 
-1. Создайте задание с дедлайном в прошлом.
-2. Войдите как `user2`, откройте это задание.
+Ожидание: для каждого студента в org-е появилось репо `<username>-tasks`. На `main` форка стоит branch protection (нельзя push). Студент — Write-collaborator на свой fork. `Enrollment.StudentForkRepoID` заполнен.
 
-**Ожидаемый результат**: Кнопка "Start Assignment" отсутствует, вместо неё — сообщение "The deadline has passed".
+### 4.2 Повторный init-forks
+
+1. Зачислить ещё одного студента.
+2. Снова нажать **Init forks**.
+
+Ожидание: пропускает уже инициализированных, форкает только новенького.
+
+### 4.3 Запуск без `TasksMasterRepoID`
+
+1. Создать курс без `TasksMasterRepoID`.
+2. Открыть страницу курса, нажать **Init forks**.
+
+Ожидание: flash error «Course has no tasks-master repo configured» / соответствующий ключ локали; никаких форков не создано.
+
+## Сценарий 5: Distribute (раздача задания)
+
+### 5.1 Успешная раздача
+
+1. Курс с инициализированными форками (см. 4.1).
+2. В `tasks-master` запушить ветку `submits/multiplication` (можно пустой коммит на base).
+3. Создать задание (`task_name=multiplication`, `allowed_files_glob=tasks/multiplication/multiplication.cpp`).
+4. Нажать **Distribute**.
+
+Ожидание: на `/distribute-status` `Status=done`, `Pushed=N`, `Failed=0`. У каждого студента в его fork-е появилась ветка `submits/multiplication`. В `/edu/student/assignments` у каждого студента запись со статусом `pending`.
+
+### 5.2 Отсутствие ветки `submits/<task>` в `tasks-master`
+
+1. Создать задание с `task_name=nonexistent` (ветки в `tasks-master` нет).
+
+Ожидание: при сабмите формы — flash error «Branch submits/nonexistent not found in tasks-master»; задание не создано.
+
+### 5.3 Distribute в неактивном курсе
+
+1. Установить `EndUnix` курса в прошлое.
+2. Нажать **Distribute**.
+
+Ожидание: flash error / 403; никаких пушей.
+
+## Сценарий 6: CI/CD и notifier
+
+### 6.1 Успешный submit
+
+1. Студент клонирует свой fork, чекаутит `submits/multiplication`, пишет код, пушит.
+
+Ожидание: 
+- CI workflow `grade.yml` запустился, прошёл, вывел `::edu-grade::100`.
+- `Submission.Status = done`.
+- В fork-е создан PR `submits/multiplication` → `main` с тайтлом `[<group>] Submit: multiplication` (или просто `Submit: multiplication` если `GroupName==""`).
+- В edu-UI у submission-а появилась оценка 100.
+- Создана запись `TestResult` с `CommitSHA`.
+
+### 6.2 Constraint check (попытка изменить запрещённый файл)
+
+1. Студент в ветке `submits/multiplication` правит файл вне `tasks/multiplication/`.
+2. Пушит.
+
+Ожидание:
+- Server-side notifier ставит `Status = failed`.
+- В PR (если уже создан) — системный комментарий «Forbidden files changed: ...».
+- CI тоже падает на cheap convention check.
+
+### 6.3 Auto-grade с дробным результатом
+
+1. Студент пишет частично рабочий код (1 из 2 тестов проходят).
+2. CI выводит `echo "::edu-grade::50"`.
+
+Ожидание: `Submission.Grade = 50`, `Status = done`.
+
+## Сценарий 7: Submission review (Approve / Merge)
+
+### 7.1 Approve
+
+1. У сабмита `Status=done`.
+2. TA открывает `/edu/teacher/assignments/{id}/submissions/{subID}`.
+3. Видит diff и комментарии PR на странице.
+4. Оставляет inline-комментарий.
+5. Жмёт **Approve** с grade=85, comment="LGTM, but consider X".
+
+Ожидание: `Status=approved`, `Grade=85`, `ManualGrade=true`, `Comment="LGTM, but consider X"`. Кнопка **Merge** активна, кнопка **Approve** скрыта.
+
+### 7.2 Merge
+
+1. Из 7.1 нажать **Merge**.
+
+Ожидание: ветка `submits/multiplication` смержена в `main` форка от имени `eduadmin`. `Status=merged`. PR закрыт.
+
+### 7.3 ManualGrade перекрывает CI
+
+1. После 7.1 студент пушит снова, CI выставляет 100.
+
+Ожидание: `Submission.Grade` остаётся 85 (не 100), потому что `ManualGrade=true`.
+
+### 7.4 Reset Approval
+
+1. Из 7.1 нажать **Reset Approval**.
+
+Ожидание: `Status=done`, `ManualGrade=false`. Если придёт новый CI с auto-grade — он будет применён.
+
+## Сценарий 8: Course sync
+
+### 8.1 Sync без конфликтов
+
+1. Зайти в `/edu/teacher/courses/{id}/sync`.
+2. Нажать **Запустить синхронизацию**.
+
+Ожидание: для каждого студенческого fork-а пушнулась ветка `course-sync`, открыт PR `course-sync` → `main`, auto-merge сработал. В таблице все строки `merged`.
+
+### 8.2 Sync с конфликтом
+
+1. В `tasks-master` `main` поправить файл, который один из студентов трогал в своём `main`.
+2. Запустить sync.
+
+Ожидание: у того студента строка `conflict`, PR в его fork-е остался открытым. У остальных — `merged`. Кнопка **Merge все без конфликтов** работает только на зелёных.
+
+### 8.3 Фильтр по группе
+
+1. В таблице sync выбрать `?group=se241`.
+
+Ожидание: видно только PR-ы студентов из группы se241.
 
 ---
 
-## Сценарий 4: Массовый форк (Bulk Fork)
+## Сценарий 9: Валидации формы оценки
 
-1. Войдите как `user1`.
-2. Откройте страницу submissions задания: `/edu/teacher/assignments/{id}/submissions`.
-3. Нажмите "Fork for All Students" и подтвердите.
+### 9.1 Валидация диапазона
 
-**Ожидаемый результат**:
-- Progress bar показывает ход выполнения.
-- Для каждого enrolled студента создан форк и submission.
-- Студенты, у которых уже есть submission, пропущены (Completed +1).
-
----
-
-## Сценарий 5: Синхронизация форков (Sync Forks)
-
-1. Войдите как `user1`, обновите файл в `homework-template` (например, добавьте тест).
-2. Откройте страницу submissions задания.
-3. Нажмите "Sync All Forks" и подтвердите.
-
-**Ожидаемый результат**:
-- Progress bar: Synced / Skipped / Failed.
-- Открыв форк студента — изменения из шаблона присутствуют.
-
----
-
-## Сценарий 6: CI/CD и результаты тестов
-
-**Предпосылка**: Forgejo Actions runner настроен и работает. В шаблоне есть workflow (`.forgejo/workflows/test.yml`).
-
-1. Войдите как `user2`, откройте свой форк.
-2. Сделайте коммит (например, измените файл).
-3. Дождитесь завершения workflow.
-
-**Ожидаемый результат**:
-- На странице задания студента (`/edu/student/assignments/{id}`) появился блок "Latest Test Result" с Score (100% если тесты прошли, 0% если упали).
-- В таблице submissions преподавателя (`/edu/teacher/assignments/{id}/submissions`) — колонка "CI Score" обновилась.
-
----
-
-## Сценарий 7: Оценивание (Grading)
-
-### 7.1 Выставление оценки
-
-1. Войдите как `user1`.
-2. Откройте submissions задания, нажмите "Detail" у submission студента.
-3. На странице `/edu/teacher/assignments/{id}/submissions/{subID}`:
-   - Видна информация о студенте.
-   - Видна таблица CI-прогонов (если были).
-   - Форма оценивания внизу.
-4. Введите Grade = 85, Comment = "Good work", нажмите "Save Grade".
-
-**Ожидаемый результат**:
-- Flash-сообщение "Grade saved successfully".
-- В таблице submissions — колонка "Grade" показывает `85/100`.
-- Статус submission = `graded`.
-
-### 7.2 Студент видит оценку
-
-1. Войдите как `user2`.
-2. Откройте задание `/edu/student/assignments/{id}`.
-
-**Ожидаемый результат**: Блок "Grade" с оценкой `85/100` и комментарием "Good work".
-
-### 7.3 Переоценка
-
-1. Войдите как `user1`, снова откройте Detail submission.
-2. Введите новую оценку = 90, нажмите "Save Grade".
-
-**Ожидаемый результат**: Оценка обновлена на 90/100.
-
-### 7.4 Валидация
-
-1. Попробуйте ввести Grade = 150 или Grade = -1.
+1. Войдите как `user1`, откройте Detail submission.
+2. Попробуйте ввести Grade = 150 или Grade = -1.
 
 **Ожидаемый результат**: Flash-ошибка "Grade must be between 0 and 100".
 
 ---
 
-## Сценарий 8: Dashboard
+## Сценарий 10: Dashboard
 
 1. Войдите как `user1` (teacher), перейдите на `/edu/dashboard`.
    **Ожидаемый результат**: Redirect на `/edu/teacher/assignments`.
@@ -244,7 +292,7 @@
 
 ---
 
-## Сценарий 9: Навигация
+## Сценарий 11: Навигация
 
 1. Войдите любым пользователем.
 2. Проверьте наличие ссылки "Education" в навигационной панели.
@@ -253,7 +301,7 @@
 
 ---
 
-## Сценарий 10: Админ-панель
+## Сценарий 12: Админ-панель
 
 1. Войдите как администратор Forgejo.
 2. Перейдите на `/edu/admin`.
@@ -263,9 +311,9 @@
 
 ---
 
-## Сценарий 11: Авторизация и защита маршрутов
+## Сценарий 13: Авторизация и защита маршрутов
 
-### 11.1 Студент не может зайти на маршруты преподавателя
+### 13.1 Студент не может зайти на маршруты преподавателя
 
 1. Войдите как `user2` (student).
 2. Перейдите вручную на `/edu/teacher/assignments`.
@@ -276,14 +324,14 @@
 
 **Ожидаемый результат**: Все маршруты `/edu/teacher/*` возвращают 403 для студента.
 
-### 11.2 Студент не может зайти на админ-панель
+### 13.2 Студент не может зайти на админ-панель
 
 1. Войдите как `user2` (student).
 2. Перейдите на `/edu/admin`.
 
 **Ожидаемый результат**: HTTP 403 Forbidden.
 
-### 11.3 Преподаватель не может редактировать чужой курс
+### 13.3 Преподаватель не может редактировать чужой курс
 
 1. Создайте второго преподавателя: войдите как администратор, на `/edu/admin` назначьте `user4` роль `teacher`.
 2. Войдите как `user1` (teacher), создайте курс "Курс user1".
@@ -297,9 +345,9 @@
 
 ---
 
-## Сценарий 12: Защита от дублирования записей (Enrollment)
+## Сценарий 14: Защита от дублирования записей (Enrollment)
 
-### 12.1 Повторная запись студента в курс
+### 14.1 Повторная запись студента в курс
 
 1. Войдите как `user1` (teacher), откройте курс.
 2. Запишите `user2` в курс (если ещё не записан).
@@ -350,12 +398,11 @@ Runner автоматически регистрируется при перво
 - `test-kit/TESTING_PLAN.md` — Полный план (~133 тест-кейсов, 15 разделов)
 - `test-kit/setup.sh` — Скрипт создания тестового окружения (пользователи, орг, репозитории, роли)
 - `test-kit/csv/` — 8 CSV-файлов для тестирования импорта (UTF-8, Win-1251, BOM, XSS, пустой, невалидный)
-- `test-kit/template-repo/` — Шаблон Go-задания с CI/CD workflow и эталонным решением
+- `test-kit/template-tasks-master/` — Шаблон `tasks-master` репозитория с примером задания (`tasks/sample/`), CI/CD workflow (`grade.yml`) и инструкцией для преподавателя
 
 ---
 
 ## Ограничения
 
 - Автоматическое обновление UI в реальном времени не реализовано — нужна перезагрузка страницы.
-- CI Score упрощённый: 0% (failed) или 100% (passed). Детальный парсинг тестов из CI логов не реализован.
 - Нет email-нотификаций.
