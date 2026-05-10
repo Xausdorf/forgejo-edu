@@ -204,6 +204,9 @@ func (a *ForgejoAdapter) RemoveCollaborator(ctx context.Context, repoID, userID 
 	if err != nil {
 		return err
 	}
+	if err := repo.LoadOwner(ctx); err != nil {
+		return err
+	}
 	return repository.DeleteCollaboration(ctx, repo, userID)
 }
 
