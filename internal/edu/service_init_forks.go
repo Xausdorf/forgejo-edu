@@ -87,6 +87,15 @@ func (s *service) InitCourseForks(ctx context.Context, courseID, doerID int64) (
 		return task, nil
 	}
 
+	if s.orgs != nil {
+		studentsTeam, err := s.orgs.GetTeam(ctx, course.OrgID, eduTeamName(courseID, RoleStudent))
+		if err == nil && studentsTeam != nil {
+			if err := s.orgs.AddTeamRepositoryIfMissing(ctx, studentsTeam, course.TasksMasterRepoID); err != nil {
+				log.Error("attach tasks-master to students team for course %d: %v", courseID, err)
+			}
+		}
+	}
+
 	go graceful.GetManager().RunWithShutdownContext(func(_ context.Context) {
 		s.executeInitForks(db.DefaultContext, task, course, baseRepo, doerID, students)
 	})
@@ -185,6 +194,10 @@ func (s *service) initOneFork(ctx context.Context, course *Course, baseRepo *rep
 		if err := s.repo.UpdateEnrollment(ctx, enrollment); err != nil {
 			return fmt.Errorf("%s: save fork id: %w", studentUser.Name, err)
 		}
+	}
+
+	if err := s.forker.SetRepositoryPrivate(ctx, forkRepo.ID, true); err != nil {
+		return fmt.Errorf("%s: make fork private: %w", studentUser.Name, err)
 	}
 
 	if err := s.forker.EnableActionsUnit(ctx, forkRepo.ID); err != nil {

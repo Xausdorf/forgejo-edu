@@ -157,10 +157,9 @@ func eduAccessMode(role RoleType) perm.AccessMode {
 	switch role {
 	case RoleTeacher, RoleAdmin:
 		return perm.AccessModeAdmin
-	case RoleTA:
-		return perm.AccessModeRead
 	default:
-		return perm.AccessModeWrite
+		// Both TA and student get Read on the team.
+		return perm.AccessModeRead
 	}
 }
 
@@ -181,14 +180,21 @@ func (s *service) addToOrgTeam(ctx context.Context, courseID, userID int64, role
 
 	teamName := eduTeamName(courseID, role)
 	accessMode := eduAccessMode(role)
+	includesAllRepositories := role != RoleStudent
 
-	team, err := s.orgs.EnsureTeam(ctx, course.OrgID, teamName, accessMode)
+	team, err := s.orgs.EnsureTeam(ctx, course.OrgID, teamName, accessMode, includesAllRepositories)
 	if err != nil {
 		return fmt.Errorf("ensure team %s: %w", teamName, err)
 	}
 
 	if err := s.orgs.AddTeamMember(ctx, team, userID); err != nil {
 		return fmt.Errorf("add team member: %w", err)
+	}
+
+	if role == RoleStudent && course.TasksMasterRepoID != 0 {
+		if err := s.orgs.AddTeamRepositoryIfMissing(ctx, team, course.TasksMasterRepoID); err != nil {
+			return fmt.Errorf("attach tasks-master to students team: %w", err)
+		}
 	}
 
 	return nil

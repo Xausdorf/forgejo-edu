@@ -94,6 +94,7 @@ func TestInitOneFork_CreatesFork_WhenNotPresent(t *testing.T) {
 	mr.On("UpdateEnrollment", ctx, mock.MatchedBy(func(e *CourseEnrollment) bool {
 		return e.ID == int64(7) && e.StudentForkRepoID == int64(555)
 	})).Return(nil)
+	mf.On("SetRepositoryPrivate", ctx, int64(555), true).Return(nil)
 	mf.On("EnableActionsUnit", ctx, int64(555)).Return(nil)
 	mf.On("AddCollaborator", ctx, int64(555), int64(42), perm.AccessModeWrite).Return(nil)
 	mf.On("GetDefaultBranch", ctx, int64(555)).Return("main", nil)
@@ -123,6 +124,7 @@ func TestInitOneFork_ReusesExistingRepoInOrg(t *testing.T) {
 	mr.On("UpdateEnrollment", ctx, mock.MatchedBy(func(e *CourseEnrollment) bool {
 		return e.StudentForkRepoID == int64(777)
 	})).Return(nil)
+	mf.On("SetRepositoryPrivate", ctx, int64(777), true).Return(nil)
 	mf.On("EnableActionsUnit", ctx, int64(777)).Return(nil)
 	mf.On("AddCollaborator", ctx, int64(777), int64(42), perm.AccessModeWrite).Return(nil)
 	mf.On("GetDefaultBranch", ctx, int64(777)).Return("main", nil)
@@ -147,6 +149,7 @@ func TestInitOneFork_Idempotent_WhenForkAlreadyTracked(t *testing.T) {
 
 	mu.On("GetUserByID", ctx, int64(42)).Return(student, nil)
 	mf.On("GetRepositoryByID", ctx, int64(555)).Return(existingFork, nil)
+	mf.On("SetRepositoryPrivate", ctx, int64(555), true).Return(nil)
 	mf.On("EnableActionsUnit", ctx, int64(555)).Return(nil)
 	mf.On("AddCollaborator", ctx, int64(555), int64(42), perm.AccessModeWrite).Return(nil)
 	mf.On("GetDefaultBranch", ctx, int64(555)).Return("main", nil)

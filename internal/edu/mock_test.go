@@ -483,13 +483,18 @@ func (m *MockRepoForker) BranchExists(ctx context.Context, repoID int64, branchN
 	return args.Bool(0), args.Error(1)
 }
 
+func (m *MockRepoForker) SetRepositoryPrivate(ctx context.Context, repoID int64, isPrivate bool) error {
+	args := m.Called(ctx, repoID, isPrivate)
+	return args.Error(0)
+}
+
 // MockOrgManager mocks the OrgManager interface
 type MockOrgManager struct {
 	mock.Mock
 }
 
-func (m *MockOrgManager) EnsureTeam(ctx context.Context, orgID int64, teamName string, accessMode perm.AccessMode) (*organization.Team, error) {
-	args := m.Called(ctx, orgID, teamName, accessMode)
+func (m *MockOrgManager) EnsureTeam(ctx context.Context, orgID int64, teamName string, accessMode perm.AccessMode, includesAllRepositories bool) (*organization.Team, error) {
+	args := m.Called(ctx, orgID, teamName, accessMode, includesAllRepositories)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -512,6 +517,11 @@ func (m *MockOrgManager) GetTeam(ctx context.Context, orgID int64, name string) 
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*organization.Team), args.Error(1)
+}
+
+func (m *MockOrgManager) AddTeamRepositoryIfMissing(ctx context.Context, team *organization.Team, repoID int64) error {
+	args := m.Called(ctx, team, repoID)
+	return args.Error(0)
 }
 
 // MockPullRequestService mocks the PullRequestService interface.

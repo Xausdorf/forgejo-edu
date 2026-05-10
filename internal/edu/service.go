@@ -109,6 +109,7 @@ type RepoForker interface {
 	EnableActionsUnit(ctx context.Context, repoID int64) error
 	GetRepositoryByOwnerAndName(ctx context.Context, ownerID int64, repoName string) (*repo_model.Repository, error)
 	BranchExists(ctx context.Context, repoID int64, branchName string) (bool, error)
+	SetRepositoryPrivate(ctx context.Context, repoID int64, isPrivate bool) error
 }
 
 // UserCreator abstracts user creation and lookup for import and bulk operations.
@@ -121,10 +122,11 @@ type UserCreator interface {
 
 // OrgManager abstracts organization team management for enrollment.
 type OrgManager interface {
-	EnsureTeam(ctx context.Context, orgID int64, teamName string, accessMode perm.AccessMode) (*organization.Team, error)
+	EnsureTeam(ctx context.Context, orgID int64, teamName string, accessMode perm.AccessMode, includesAllRepositories bool) (*organization.Team, error)
 	AddTeamMember(ctx context.Context, team *organization.Team, userID int64) error
 	RemoveTeamMember(ctx context.Context, team *organization.Team, userID int64) error
 	GetTeam(ctx context.Context, orgID int64, name string) (*organization.Team, error)
+	AddTeamRepositoryIfMissing(ctx context.Context, team *organization.Team, repoID int64) error
 }
 
 // PullRequestService abstracts PR creation, commenting, and branch-diff

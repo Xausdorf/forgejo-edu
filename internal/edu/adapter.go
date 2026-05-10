@@ -129,7 +129,7 @@ func (a *ForgejoAdapter) GetDefaultBranch(ctx context.Context, repoID int64) (st
 }
 
 // EnsureTeam gets or creates a team in the given org with the specified access mode.
-func (a *ForgejoAdapter) EnsureTeam(ctx context.Context, orgID int64, teamName string, accessMode perm.AccessMode) (*org_model.Team, error) {
+func (a *ForgejoAdapter) EnsureTeam(ctx context.Context, orgID int64, teamName string, accessMode perm.AccessMode, includesAllRepositories bool) (*org_model.Team, error) {
 	team, err := org_model.GetTeam(ctx, orgID, teamName)
 	if err == nil {
 		return team, nil
@@ -138,21 +138,35 @@ func (a *ForgejoAdapter) EnsureTeam(ctx context.Context, orgID int64, teamName s
 		return nil, fmt.Errorf("get team: %w", err)
 	}
 
-	// Team doesn't exist, create it
 	team = &org_model.Team{
 		OrgID:                   orgID,
 		Name:                    teamName,
 		AccessMode:              accessMode,
-		IncludesAllRepositories: true,
+		IncludesAllRepositories: includesAllRepositories,
 	}
 	if err := models.NewTeam(ctx, team); err != nil {
 		if org_model.IsErrTeamAlreadyExist(err) {
-			// Race condition: another goroutine created it
 			return org_model.GetTeam(ctx, orgID, teamName)
 		}
 		return nil, fmt.Errorf("create team: %w", err)
 	}
 	return team, nil
+}
+
+// AddTeamRepositoryIfMissing attaches a repo to the team if not already attached.
+// No-op when the team already has the repo or when IncludesAllRepositories=true.
+func (a *ForgejoAdapter) AddTeamRepositoryIfMissing(ctx context.Context, team *org_model.Team, repoID int64) error {
+	if team.IncludesAllRepositories {
+		return nil
+	}
+	if org_model.HasTeamRepo(ctx, team.OrgID, team.ID, repoID) {
+		return nil
+	}
+	repo, err := repo_model.GetRepositoryByID(ctx, repoID)
+	if err != nil {
+		return fmt.Errorf("get repo %d: %w", repoID, err)
+	}
+	return models.AddRepository(ctx, team, repo)
 }
 
 // AddTeamMember adds a user to a team (idempotent).
@@ -208,6 +222,19 @@ func (a *ForgejoAdapter) RemoveCollaborator(ctx context.Context, repoID, userID 
 		return err
 	}
 	return repository.DeleteCollaboration(ctx, repo, userID)
+}
+
+// SetRepositoryPrivate flips the repo's IsPrivate flag.
+func (a *ForgejoAdapter) SetRepositoryPrivate(ctx context.Context, repoID int64, isPrivate bool) error {
+	repo, err := repo_model.GetRepositoryByID(ctx, repoID)
+	if err != nil {
+		return err
+	}
+	if repo.IsPrivate == isPrivate {
+		return nil
+	}
+	repo.IsPrivate = isPrivate
+	return repo_model.UpdateRepositoryCols(ctx, repo, "is_private")
 }
 
 // EnableActionsUnit ensures the repo has the Actions unit enabled. Forks default to {TypeCode, TypePullRequests}.
