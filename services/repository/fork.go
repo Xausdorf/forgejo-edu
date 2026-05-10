@@ -49,6 +49,8 @@ type ForkRepoOptions struct {
 	Name         string
 	Description  string
 	SingleBranch string
+	// AllowMultipleForksPerOwner skips the "one fork per owner per base repo" uniqueness check.
+	AllowMultipleForksPerOwner bool
 }
 
 // ForkRepositoryIfNotExists creates a fork of a repository if it does not already exists and fails otherwise
@@ -60,15 +62,19 @@ func ForkRepositoryIfNotExists(ctx context.Context, doer, owner *user_model.User
 		}
 	}
 
-	forkedRepo, err := repo_model.GetUserFork(ctx, opts.BaseRepo.ID, owner.ID)
-	if err != nil {
-		return nil, err
-	}
-	if forkedRepo != nil {
-		return nil, ErrForkAlreadyExist{
-			Uname:    owner.Name,
-			RepoName: opts.BaseRepo.FullName(),
-			ForkName: forkedRepo.FullName(),
+	var err error
+	if !opts.AllowMultipleForksPerOwner {
+		var forkedRepo *repo_model.Repository
+		forkedRepo, err = repo_model.GetUserFork(ctx, opts.BaseRepo.ID, owner.ID)
+		if err != nil {
+			return nil, err
+		}
+		if forkedRepo != nil {
+			return nil, ErrForkAlreadyExist{
+				Uname:    owner.Name,
+				RepoName: opts.BaseRepo.FullName(),
+				ForkName: forkedRepo.FullName(),
+			}
 		}
 	}
 
