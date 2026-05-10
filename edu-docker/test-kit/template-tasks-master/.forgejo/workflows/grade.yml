@@ -1,0 +1,51 @@
+name: Grade
+on:
+  push:
+    branches: ['submits/**']
+
+jobs:
+  grade:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - name: Resolve task name
+        id: task
+        run: |
+          TASK="${GITHUB_REF#refs/heads/submits/}"
+          echo "name=$TASK" >> "$GITHUB_OUTPUT"
+          echo "Task: $TASK"
+
+      - name: Cheap constraint check (по конвенции)
+        run: |
+          TASK="${{ steps.task.outputs.name }}"
+          DIFF=$(git diff --name-only main...HEAD | grep -v "^tasks/$TASK/" || true)
+          if [ -n "$DIFF" ]; then
+            echo "Forbidden files changed: $DIFF"
+            exit 1
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest
+
+      - name: Run tests
+        id: tests
+        run: |
+          TASK="${{ steps.task.outputs.name }}"
+          cd "tasks/$TASK"
+          pytest -q --tb=short
+
+      - name: Grade marker
+        if: success()
+        run: echo "::edu-grade::100"
+
+      - name: Grade marker (failure)
+        if: failure()
+        run: echo "::edu-grade::0"

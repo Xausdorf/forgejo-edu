@@ -26,7 +26,7 @@
    - `user2` → `student`
    - `user3` → `student` (для проверки, что не видит чужие курсы)
 
-3. У преподавателя должен быть `tasks-master` репозиторий в org-е с примером задания (`tasks/sample/`) и `.forgejo/workflows/grade.yml`. Используйте `test-kit/template-tasks-master/` как заготовку.
+3. У преподавателя должен быть `tasks-master` репозиторий в org-е с примером задания (`tasks/sample/`) и `.forgejo/workflows/grade.yml`. Используйте `edu-docker/test-kit/template-tasks-master/` как заготовку.
 
 ---
 
@@ -393,12 +393,12 @@ Runner автоматически регистрируется при перво
 
 ## Расширенный тест-кит
 
-Полный набор тестовых данных и скриптов находится в `test-kit/` (корень репозитория course-work):
+Полный набор тестовых данных и скриптов находится в каталоге `edu-docker/test-kit/`:
 
-- `test-kit/TESTING_PLAN.md` — Полный план (~133 тест-кейсов, 15 разделов)
-- `test-kit/setup.sh` — Скрипт создания тестового окружения (пользователи, орг, репозитории, роли)
-- `test-kit/csv/` — 8 CSV-файлов для тестирования импорта (UTF-8, Win-1251, BOM, XSS, пустой, невалидный)
-- `test-kit/template-tasks-master/` — Шаблон `tasks-master` репозитория с примером задания (`tasks/sample/`), CI/CD workflow (`grade.yml`) и инструкцией для преподавателя
+- `edu-docker/test-kit/TESTING_PLAN.md` — Полный план (~133 тест-кейсов, 15 разделов)
+- `edu-docker/test-kit/setup.sh` — Скрипт создания тестового окружения (пользователи, орг, репозитории, роли)
+- `edu-docker/test-kit/csv/` — 8 CSV-файлов для тестирования импорта (UTF-8, Win-1251, BOM, XSS, пустой, невалидный)
+- `edu-docker/test-kit/template-tasks-master/` — Шаблон `tasks-master` репозитория с примером задания (`tasks/sample/`), CI/CD workflow (`grade.yml`) и инструкцией для преподавателя
 
 ---
 

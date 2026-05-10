@@ -273,7 +273,7 @@ Frontend опрашивает `/distribute-status`.
 
 #### Е. CI/CD: путь от push студента до PR
 
-Workflow в `tasks-master` (`.forgejo/workflows/grade.yml`) запускается на push в `refs/heads/submits/**`. Рекомендуемый шаблон (см. `test-kit/template-tasks-master/`):
+Workflow в `tasks-master` (`.forgejo/workflows/grade.yml`) запускается на push в `refs/heads/submits/**`. Рекомендуемый шаблон (см. `edu-docker/test-kit/template-tasks-master/`):
 
 ```yaml
 on:
