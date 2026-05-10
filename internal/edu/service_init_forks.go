@@ -187,6 +187,10 @@ func (s *service) initOneFork(ctx context.Context, course *Course, baseRepo *rep
 		}
 	}
 
+	if err := s.forker.EnableActionsUnit(ctx, forkRepo.ID); err != nil {
+		return fmt.Errorf("%s: enable actions: %w", studentUser.Name, err)
+	}
+
 	if err := s.forker.AddCollaborator(ctx, forkRepo.ID, studentUser.ID, perm.AccessModeWrite); err != nil {
 		return fmt.Errorf("%s: add collaborator: %w", studentUser.Name, err)
 	}

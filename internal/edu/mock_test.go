@@ -465,6 +465,11 @@ func (m *MockRepoForker) ProtectMainBranch(ctx context.Context, repoID int64, br
 	return args.Error(0)
 }
 
+func (m *MockRepoForker) EnableActionsUnit(ctx context.Context, repoID int64) error {
+	args := m.Called(ctx, repoID)
+	return args.Error(0)
+}
+
 func (m *MockRepoForker) GetRepositoryByOwnerAndName(ctx context.Context, ownerID int64, repoName string) (*repo_model.Repository, error) {
 	args := m.Called(ctx, ownerID, repoName)
 	if args.Get(0) == nil {

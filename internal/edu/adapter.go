@@ -9,6 +9,7 @@ import (
 	org_model "forgejo.org/models/organization"
 	"forgejo.org/models/perm"
 	repo_model "forgejo.org/models/repo"
+	"forgejo.org/models/unit"
 	user_model "forgejo.org/models/user"
 	"forgejo.org/modules/git"
 	"forgejo.org/modules/optional"
@@ -34,9 +35,10 @@ func (a *ForgejoAdapter) ForkRepositoryAndUpdates(ctx context.Context, doer, own
 		}
 	}
 	serviceOpts := repository.ForkRepoOptions{
-		BaseRepo:    opts.BaseRepo,
-		Name:        opts.Name,
-		Description: opts.BaseRepo.Description,
+		BaseRepo:                   opts.BaseRepo,
+		Name:                       opts.Name,
+		Description:                opts.BaseRepo.Description,
+		AllowMultipleForksPerOwner: true,
 	}
 	return repository.ForkRepositoryAndUpdates(ctx, doer, owner, serviceOpts)
 }
@@ -205,7 +207,19 @@ func (a *ForgejoAdapter) RemoveCollaborator(ctx context.Context, repoID, userID 
 	return repository.DeleteCollaboration(ctx, repo, userID)
 }
 
-// ProtectMainBranch enables branch protection on the named branch (CanPush=false, no merge whitelist).
+// EnableActionsUnit ensures the repo has the Actions unit enabled. Forks default to {TypeCode, TypePullRequests}.
+func (a *ForgejoAdapter) EnableActionsUnit(ctx context.Context, repoID int64) error {
+	repo, err := repo_model.GetRepositoryByID(ctx, repoID)
+	if err != nil {
+		return err
+	}
+	return repository.UpdateRepositoryUnits(ctx, repo, []repo_model.RepoUnit{{
+		RepoID: repo.ID,
+		Type:   unit.TypeActions,
+	}}, nil)
+}
+
+// ProtectMainBranch enables branch protection on the named branch.
 func (a *ForgejoAdapter) ProtectMainBranch(ctx context.Context, repoID int64, branchName string) error {
 	repo, err := repo_model.GetRepositoryByID(ctx, repoID)
 	if err != nil {
@@ -223,8 +237,15 @@ func (a *ForgejoAdapter) ProtectMainBranch(ctx context.Context, repoID int64, br
 		}
 	}
 	existing.CanPush = false
-	existing.EnableMergeWhitelist = false
 	existing.RequireSignedCommits = false
+	existing.EnableMergeWhitelist = true
 
-	return git_model.UpdateProtectBranch(ctx, repo, existing, git_model.WhitelistOptions{})
+	var mergeUserIDs []int64
+	if sysUser, err := user_model.GetUserByName(ctx, systemDoerName); err == nil && sysUser != nil {
+		mergeUserIDs = []int64{sysUser.ID}
+	}
+
+	return git_model.UpdateProtectBranch(ctx, repo, existing, git_model.WhitelistOptions{
+		MergeUserIDs: mergeUserIDs,
+	})
 }
