@@ -8,15 +8,18 @@ services:
       - "2222:22"
     volumes:
       - forgejo-data:/data
+      - forgejo-shared:/shared
     restart: unless-stopped
 
   # Forgejo Actions runner — executes CI/CD workflows from .forgejo/workflows/
   forgejo-runner:
     image: code.forgejo.org/forgejo/runner:6.3.1
+    user: root
     depends_on:
       - forgejo
     volumes:
       - runner-data:/data
+      - forgejo-shared:/shared:ro
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - FORGEJO_URL=http://forgejo:3000
@@ -26,53 +29,24 @@ services:
     command:
       - -c
       - |
-        # Wait for Forgejo to become ready
         echo "Waiting for Forgejo at $$FORGEJO_URL ..."
         until wget -qO- "$$FORGEJO_URL/api/v1/version" >/dev/null 2>&1; do
           sleep 2
         done
         echo "Forgejo is ready."
 
-        # If runner is already registered, just start it
         if [ -f /data/.runner ]; then
-          echo "Runner already registered, starting..."
-          forgejo-runner daemon --config /data/config.yml
-          exit 0
+          echo "Runner already registered, starting daemon..."
+          exec forgejo-runner daemon --config /data/config.yml
         fi
 
-        # Get registration token from Forgejo admin API.
-        # First, create an API token for the admin user.
-        # The admin user is the first registered user (eduadmin).
-        echo "Obtaining registration token..."
-
-        # Try to get token via admin API with Basic auth
-        REG_TOKEN=""
-        for i in 1 2 3 4 5 6 7 8 9 10; do
-          REG_TOKEN=$$(wget -qO- \
-            --header "Authorization: Basic $$(echo -n 'eduadmin:Password123!' | base64)" \
-            "$$FORGEJO_URL/api/v1/admin/runners/registration-token" 2>/dev/null \
-            | sed 's/.*"token":"\([^"]*\)".*/\1/')
-
-          if [ -n "$$REG_TOKEN" ] && [ "$$REG_TOKEN" != "" ]; then
-            break
-          fi
-          echo "  Attempt $$i: waiting for admin user..."
-          sleep 5
+        echo "Waiting for /shared/runner-token from forgejo container..."
+        until [ -s /shared/runner-token ]; do
+          sleep 2
         done
+        REG_TOKEN=$$(tr -d '[:space:]' < /shared/runner-token)
+        echo "Got registration token from shared volume."
 
-        if [ -z "$$REG_TOKEN" ]; then
-          echo "ERROR: Could not obtain registration token."
-          echo "Make sure 'eduadmin' user exists with password 'Password123!' and is a site admin."
-          echo "You can register the runner manually:"
-          echo "  1. Go to $$FORGEJO_URL/-/admin/runners"
-          echo "  2. Copy the registration token"
-          echo "  3. Run: docker exec -it <container> forgejo-runner register --instance $$FORGEJO_URL --token <TOKEN> --name $$RUNNER_NAME --labels '$$RUNNER_LABELS' --no-interactive"
-          sleep infinity
-        fi
-
-        echo "Registration token: $$REG_TOKEN"
-
-        # Generate runner config
         mkdir -p /data
         cat > /data/config.yml <<'CFGEOF'
         log:
@@ -101,7 +75,7 @@ services:
           --no-interactive
 
         echo "Runner registered. Starting daemon..."
-        forgejo-runner daemon --config /data/config.yml
+        exec forgejo-runner daemon --config /data/config.yml
     restart: unless-stopped
 
   # Run integration tests (one-shot)
@@ -138,3 +112,4 @@ services:
 volumes:
   forgejo-data:
   runner-data:
+  forgejo-shared:

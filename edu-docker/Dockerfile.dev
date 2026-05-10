@@ -41,18 +41,19 @@ COPY --from=build /app/public /app/public
 COPY --from=build /app/custom /app/custom
 
 COPY edu-docker/app.ini /data/gitea/conf/app.ini
+COPY edu-docker/forgejo-entrypoint.sh /app/forgejo-entrypoint.sh
 
 WORKDIR /app
 ENV GITEA_WORK_DIR=/app
 ENV GITEA_CUSTOM=/data/gitea
 ENV USER=git
 
-RUN mkdir -p /data/gitea/conf /data/git /data/gitea/log \
-    && chown -R git:git /data /app
+RUN mkdir -p /data/gitea/conf /data/git /data/gitea/log /shared \
+    && chmod +x /app/forgejo-entrypoint.sh \
+    && chown -R git:git /data /app /shared
 
 EXPOSE 3000 22
 
 USER git
 
-# First run will trigger install wizard at http://localhost:3000
-CMD ["./gitea", "web"]
+CMD ["/app/forgejo-entrypoint.sh"]
